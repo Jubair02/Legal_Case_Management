@@ -317,3 +317,24 @@ Work Log:
 Stage Summary:
 - MVP COMPLETE AND VERIFIED. All 5 phases of the requested scope delivered: Auth+RBAC, dashboards ×4 roles, case management (BD case types/courts/districts), lawyer & client management (portal accounts), documents (real PDF upload/download/share), hearings (types/statuses/updates/auto-next), hearing reminders (in-app, today/tomorrow sweep), invoices+payments (bKash/Nagad/Rocket/Cash/Bank, ৳ BDT, partial/overdue logic), case resolution/closing, reports (charts), notifications center, settings/user management.
 - Demo accounts: admin@ainsheba.bd/Admin@123, kamal@ainsheba.bd/Lawyer@123, staff@ainsheba.bd/Staff@123, client@ainsheba.bd/Client@123.
+
+---
+Task ID: QA-REVIEW-1
+Agent: Z.ai Code (main, full-project review)
+Task: Thorough review of entire AinSheba project — bugs, RBAC, security, UX, broken features; produce prioritized issue list.
+
+Work Log:
+- Read worklog, schema, auth/api-helpers libs; checked dev server (running, port 3000).
+- Spawned 2 Explore agents: (A) full API route RBAC/security review (28 route files), (B) full frontend review (all views/shell/hooks).
+- Dynamic API tests (curl, 4 role cookie jars): confirmed CRITICAL cross-tenant leaks GET /api/invoices?clientId= and /api/payments?clientId= for CLIENT role; verified 403s (users/reports), case/client/doc/file scoping, unauth 401s, overpayment 422, UNPAID→PARTIAL transition, payment-on-CANCELLED accepted (bug), login timing enumeration (~43ms no-user vs ~53ms wrong-pass).
+- Browser tests (agent-browser): admin/lawyer/client/staff login + nav; case create (staff) → hearing schedule → doc upload → admin delete flow all work; confirmed case-detail opens on Hearings tab (should be Overview); confirmed billing tabOverride breaks sidebar Invoices/Payments switching for CLIENT; confirmed LAWYER nav lacks Billing; confirmed session-invalidation leaves stranded SPA (no 401→login redirect); notifications dropdown + mark-all-read OK; badge OK at small counts; mobile 390px hamburger nav OK; sticky footer OK.
+- Confirmed in code: invoice POST lacks case.clientId===clientId cross-check; lawyer PATCH email="" → user.update email:null crash (500); requireNumber accepts Infinity/""; notifications take param edge OK in practice.
+- dev.log: old "requireAuth is not defined" error already fixed in current code; lint passes clean.
+- Cleanup: removed QA test invoice INV-2026-0007 (+payments, notifications) and leftover TR-777/2026 test case via API/SQL; DB back to 6 seed cases/invoices.
+
+Stage Summary:
+- Product is functionally strong end-to-end for all 4 roles; core legal workflow complete and verified in browser.
+- 2 CRITICAL security holes confirmed (client invoice/payment cross-tenant reads via clientId query param) — one-line scope fixes needed in invoices/route.ts + payments/route.ts.
+- HIGH: no global 401→login handling; LAWYER missing Billing nav; hardcoded JWT fallback secret; login rate-limit/timing hardening absent.
+- MEDIUM: payment on CANCELLED invoice allowed; billing tabOverride stale; case-detail default tab; invoice clientId/caseId mismatch; lawyer email-clear 500; SVG-XSS; no self-service password change.
+- Full prioritized findings list delivered to user (37 items). No code changes made during review.

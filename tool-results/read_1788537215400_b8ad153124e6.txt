@@ -1,0 +1,814 @@
+     1→/**
+     2→ * Seed script for AinSheba — Legal Case Management (Bangladesh MVP)
+     3→ * Run: bun prisma/seed.ts
+     4→ */
+     5→import { PrismaClient } from "@prisma/client"
+     6→import { hashPassword } from "../src/lib/password"
+     7→import { mkdirSync, writeFileSync } from "fs"
+     8→import { join } from "path"
+     9→
+    10→const db = new PrismaClient()
+    11→
+    12→const UPLOADS_ROOT = join(process.cwd(), "uploads")
+    13→
+    14→/** Minimal valid PDF generator (single page, Helvetica). */
+    15→function makePdf(lines: string[]): Buffer {
+    16→  const content = lines
+    17→    .map((l, i) => {
+    18→      const text = l.replace(/[\\()]/g, "").slice(0, 90)
+    19→      const y = 740 - i * 22
+    20→      const size = i === 0 ? 15 : 11
+    21→      return `BT /F1 ${size} Tf 60 ${y} Td (${text}) Tj ET`
+    22→    })
+    23→    .join("\n")
+    24→  const objects = [
+    25→    "<< /Type /Catalog /Pages 2 0 R >>",
+    26→    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    27→    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+    28→    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+    29→    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    30→  ]
+    31→  let pdf = "%PDF-1.4\n"
+    32→  const offsets: number[] = []
+    33→  objects.forEach((body, i) => {
+    34→    offsets.push(pdf.length)
+    35→    pdf += `${i + 1} 0 obj\n${body}\nendobj\n`
+    36→  })
+    37→  const xrefStart = pdf.length
+    38→  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+    39→  offsets.forEach((o) => {
+    40→    pdf += `${String(o).padStart(10, "0")} 00000 n \n`
+    41→  })
+    42→  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`
+    43→  return Buffer.from(pdf, "latin1")
+    44→}
+    45→
+    46→/** Dhaka civil time helper: dayOffset 0 = today, hour in Dhaka local time. */
+    47→function dhakaAt(dayOffset: number, hour = 10): Date {
+    48→  const now = new Date()
+    49→  const base = new Date(now.getTime() + dayOffset * 24 * 60 * 60 * 1000)
+    50→  const y = base.getUTCFullYear()
+    51→  const m = String(base.getUTCMonth() + 1).padStart(2, "0")
+    52→  const d = String(base.getUTCDate()).padStart(2, "0")
+    53→  const utcHour = hour - 6 // Dhaka = UTC+6 (no DST)
+    54→  return new Date(`${y}-${m}-${d}T${String(utcHour).padStart(2, "0")}:00:00.000Z`)
+    55→}
+    56→
+    57→function dateOnly(dayOffset: number): Date {
+    58→  return dhakaAt(dayOffset, 12)
+    59→}
+    60→
+    61→async function main() {
+    62→  console.log("Seeding AinSheba database...")
+    63→
+    64→  // ---- wipe in FK-safe order ----
+    65→  await db.notification.deleteMany()
+    66→  await db.payment.deleteMany()
+    67→  await db.invoice.deleteMany()
+    68→  await db.caseUpdate.deleteMany()
+    69→  await db.caseDocument.deleteMany()
+    70→  await db.hearing.deleteMany()
+    71→  await db.case.deleteMany()
+    72→  await db.client.deleteMany()
+    73→  await db.lawyer.deleteMany()
+    74→  await db.user.deleteMany()
+    75→
+    76→  mkdirSync(UPLOADS_ROOT, { recursive: true })
+    77→
+    78→  // ================= USERS =================
+    79→  const admin = await db.user.create({
+    80→    data: {
+    81→      name: "Arif Rahman",
+    82→      email: "admin@ainsheba.bd",
+    83→      phone: "+880 1711-000001",
+    84→      password: hashPassword("Admin@123"),
+    85→      role: "ADMIN",
+    86→    },
+    87→  })
+    88→
+    89→  const lawyerUser1 = await db.user.create({
+    90→    data: {
+    91→      name: "Adv. Kamal Hossain",
+    92→      email: "kamal@ainsheba.bd",
+    93→      phone: "+880 1711-000002",
+    94→      password: hashPassword("Lawyer@123"),
+    95→      role: "LAWYER",
+    96→    },
+    97→  })
+    98→  const lawyerUser2 = await db.user.create({
+    99→    data: {
+   100→      name: "Adv. Nusrat Jahan",
+   101→      email: "nusrat@ainsheba.bd",
+   102→      phone: "+880 1711-000003",
+   103→      password: hashPassword("Lawyer@123"),
+   104→      role: "LAWYER",
+   105→    },
+   106→  })
+   107→  const lawyerUser3 = await db.user.create({
+   108→    data: {
+   109→      name: "Adv. Mahmudul Hasan",
+   110→      email: "mahmud@ainsheba.bd",
+   111→      phone: "+880 1711-000004",
+   112→      password: hashPassword("Lawyer@123"),
+   113→      role: "LAWYER",
+   114→    },
+   115→  })
+   116→
+   117→  const staff = await db.user.create({
+   118→    data: {
+   119→      name: "Rafiq Islam",
+   120→      email: "staff@ainsheba.bd",
+   121→      phone: "+880 1711-000005",
+   122→      password: hashPassword("Staff@123"),
+   123→      role: "STAFF",
+   124→    },
+   125→  })
+   126→
+   127→  const clientUser1 = await db.user.create({
+   128→    data: {
+   129→      name: "Abdul Karim",
+   130→      email: "client@ainsheba.bd",
+   131→      phone: "+880 1811-000010",
+   132→      password: hashPassword("Client@123"),
+   133→      role: "CLIENT",
+   134→    },
+   135→  })
+   136→
+   137→  const lawyer1 = await db.lawyer.create({
+   138→    data: {
+   139→      userId: lawyerUser1.id,
+   140→      name: "Adv. Kamal Hossain",
+   141→      phone: "+880 1711-000002",
+   142→      email: "kamal@ainsheba.bd",
+   143→      barCouncilId: "BC-1998/D-1042",
+   144→      specialization: "Criminal Law",
+   145→      chamberName: "Hossain & Associates, Nazimuddin Road, Dhaka",
+   146→      experience: 25,
+   147→    },
+   148→  })
+   149→  const lawyer2 = await db.lawyer.create({
+   150→    data: {
+   151→      userId: lawyerUser2.id,
+   152→      name: "Adv. Nusrat Jahan",
+   153→      phone: "+880 1711-000003",
+   154→      email: "nusrat@ainsheba.bd",
+   155→      barCouncilId: "BC-2012/D-3187",
+   156→      specialization: "Family Law",
+   157→      chamberName: "Jahan Law Chamber, Uttara Sector-7, Dhaka",
+   158→      experience: 12,
+   159→    },
+   160→  })
+   161→  const lawyer3 = await db.lawyer.create({
+   162→    data: {
+   163→      userId: lawyerUser3.id,
+   164→      name: "Adv. Mahmudul Hasan",
+   165→      phone: "+880 1711-000004",
+   166→      email: "mahmud@ainsheba.bd",
+   167→      barCouncilId: "BC-2016/D-5210",
+   168→      specialization: "Land Law",
+   169→      chamberName: "Hasan Chamber, Old Court Building, Cumilla",
+   170→      experience: 8,
+   171→    },
+   172→  })
+   173→
+   174→  const client1 = await db.client.create({
+   175→    data: {
+   176→      userId: clientUser1.id,
+   177→      name: "Abdul Karim",
+   178→      phone: "+880 1811-000010",
+   179→      email: "client@ainsheba.bd",
+   180→      nid: "1990123456789",
+   181→      address: "House 42, Road 7, Dhanmondi, Dhaka-1205",
+   182→      clientType: "INDIVIDUAL",
+   183→    },
+   184→  })
+   185→  const client2 = await db.client.create({
+   186→    data: {
+   187→      name: "Rahim Textiles Ltd.",
+   188→      phone: "+880 1911-000020",
+   189→      email: "legal@rahimtex.bd",
+   190→      nid: "TRAD/DNCC/009821",
+   191→      address: "Plot 15-20, BSCIC Industrial Area, Tongi, Gazipur",
+   192→      clientType: "COMPANY",
+   193→    },
+   194→  })
+   195→  const client3 = await db.client.create({
+   196→    data: {
+   197→      name: "Shirin Akter",
+   198→      phone: "+880 1611-000030",
+   199→      email: "shirin.akter@gmail.com",
+   200→      nid: "1995456789012",
+   201→      address: "Village: Boro Bazar, Post: Nangalkot, Cumilla",
+   202→      clientType: "INDIVIDUAL",
+   203→    },
+   204→  })
+   205→  const client4 = await db.client.create({
+   206→    data: {
+   207→      name: "Dhaka Traders (Pvt.) Ltd.",
+   208→      phone: "+880 1521-000040",
+   209→      email: "info@dhakatraders.bd",
+   210→      nid: "TRAD/Chattogram/114522",
+   211→      address: "78 Agrabad C/A, Chattogram",
+   212→      clientType: "ORGANIZATION",
+   213→    },
+   214→  })
+   215→
+   216→  // ================= CASES =================
+   217→  const c1 = await db.case.create({
+   218→    data: {
+   219→      caseNumber: "CS-123/2026",
+   220→      title: "Karim vs. Rahman — Land Possession & Eviction Suit",
+   221→      type: "Land / Property Case",
+   222→      clientId: client1.id,
+   223→      lawyerId: lawyer3.id,
+   224→      court: "District & Sessions Judge Court",
+   225→      district: "Cumilla",
+   226→      filingDate: dateOnly(-45),
+   227→      status: "ACTIVE",
+   228→      priority: "HIGH",
+   229→      oppositeParty: "Mizanur Rahman & Sons",
+   230→      description:
+   231→        "Title dispute over 0.32 acre land at Mouza: Barura, Khatian No. 412. Defendants illegally occupied the suit land after altering boundary pillars. Seeking declaration of title, permanent injunction and eviction.",
+   232→    },
+   233→  })
+   234→
+   235→  const c2 = await db.case.create({
+   236→    data: {
+   237→      caseNumber: "CR-456/2026",
+   238→      title: "State vs. Jahangir Alam — Bail Matter (Section 302/34)",
+   239→      type: "Bail Matter",
+   240→      clientId: client3.id,
+   241→      lawyerId: lawyer1.id,
+   242→      court: "Metropolitan Magistrate Court",
+   243→      district: "Dhaka",
+   244→      filingDate: dateOnly(-20),
+   245→      status: "ACTIVE",
+   246→      priority: "URGENT",
+   247→      oppositeParty: "The State of Bangladesh",
+   248→      description:
+   249→        "Regular bail petition for the accused in Paltan Model Thana FIR No. 118/2026. Client is the wife of the accused; accused allegedly implicated falsely in a criminal breach of trust matter.",
+   250→    },
+   251→  })
+   252→
+   253→  const c3 = await db.case.create({
+   254→    data: {
+   255→      caseNumber: "FC-789/2026",
+   256→      title: "Shirin Akter vs. Md. Hossain — Maintenance Case",
+   257→      type: "Family Case",
+   258→      clientId: client3.id,
+   259→      lawyerId: lawyer2.id,
+   260→      court: "Family Court",
+   261→      district: "Cumilla",
+   262→      filingDate: dateOnly(-60),
+   263→      status: "ACTIVE",
+   264→      priority: "MEDIUM",
+   265→      oppositeParty: "Md. Hossain Ali",
+   266→      description:
+   267→        "Claim for monthly maintenance under the Muslim Family Laws Ordinance, 1961 for the petitioner and her minor child. Husband has been absent since March 2025.",
+   268→    },
+   269→  })
+   270→
+   271→  const c4 = await db.case.create({
+   272→    data: {
+   273→      caseNumber: "WR-101/2026",
+   274→      title: "Rahim Textiles Ltd. vs. Bangladesh Customs — Writ Petition",
+   275→      type: "Writ Petition",
+   276→      clientId: client2.id,
+   277→      lawyerId: lawyer1.id,
+   278→      court: "High Court Division",
+   279→      district: "Dhaka",
+   280→      filingDate: dateOnly(-12),
+   281→      status: "PENDING",
+   282→      priority: "HIGH",
+   283→      oppositeParty: "Commissioner of Customs, Chattogram",
+   284→      description:
+   285→        "Article 102 writ challenging arbitrary assessment order and detention of imported consignment at Chattogram Port. Rule Nisi issued; pending for hearing of the Rule.",
+   286→    },
+   287→  })
+   288→
+   289→  const c5 = await db.case.create({
+   290→    data: {
+   291→      caseNumber: "CS-202/2025",
+   292→      title: "Dhaka Traders vs. Meghna Distribution — Money Recovery Suit",
+   293→      type: "Civil Case",
+   294→      clientId: client4.id,
+   295→      lawyerId: lawyer2.id,
+   296→      court: "District & Sessions Judge Court",
+   297→      district: "Chattogram",
+   298→      filingDate: dateOnly(-400),
+   299→      status: "CLOSED",
+   300→      priority: "MEDIUM",
+   301→      oppositeParty: "Meghna Distribution Agency",
+   302→      description:
+   303→        "Recovery of ৳18,50,000 trade dues under three dishonoured cheques (NI Act sections 138 read with Order XXXVII CPC).",
+   304→      resolutionSummary:
+   305→        "Case resolved through mutual settlement (salish) mediated before the honourable court. Defendant paid ৳16,00,000 in two instalments; plaintiff waived the remainder.",
+   306→      outcome: "Settled / Compromise Decree",
+   307→      closedAt: dateOnly(-30),
+   308→    },
+   309→  })
+   310→
+   311→  const c6 = await db.case.create({
+   312→    data: {
+   313→      caseNumber: "LB-303/2026",
+   314→      title: "Workers of Rahim Textiles vs. Management — Labour Dispute",
+   315→      type: "Labour Case",
+   316→      clientId: client2.id,
+   317→      lawyerId: lawyer1.id,
+   318→      court: "Labour Court",
+   319→      district: "Dhaka",
+   320→      filingDate: dateOnly(-8),
+   321→      status: "ON_HOLD",
+   322→      priority: "LOW",
+   323→      oppositeParty: "Inspector (Labour), Dhaka Region",
+   324→      description:
+   325→        "Compliance case regarding delay in depositing provident fund contributions. On hold pending internal audit report from the company's finance department.",
+   326→    },
+   327→  })
+   328→
+   329→  // ================= DOCUMENTS (with real files) =================
+   330→  async function seedDoc(
+   331→    caseId: string,
+   332→    documentName: string,
+   333→    documentType: string,
+   334→    category: string,
+   335→    shared: boolean,
+   336→    uploadedByName: string,
+   337→    uploadedById: string | null,
+   338→    pdfLines: string[]
+   339→  ) {
+   340→    const dir = join(UPLOADS_ROOT, "seed", caseId)
+   341→    mkdirSync(dir, { recursive: true })
+   342→    const safe = documentName.toLowerCase().replace(/[^a-z0-9]+/g, "-")
+   343→    const filePath = join(dir, `${Date.now()}-${safe}.pdf`)
+   344→    writeFileSync(filePath, makePdf(pdfLines))
+   345→    await db.caseDocument.create({
+   346→      data: {
+   347→        caseId,
+   348→        documentName,
+   349→        documentType,
+   350→        category,
+   351→        fileName: `${safe}.pdf`,
+   352→        filePath,
+   353→        fileSize: 2048 + Math.floor(Math.random() * 900000),
+   354→        mimeType: "application/pdf",
+   355→        sharedWithClient: shared,
+   356→        uploadedById,
+   357→        uploadedByName,
+   358→      },
+   359→    })
+   360→  }
+   361→
+   362→  await seedDoc(c1.id, "Vakalatnama — Abdul Karim", "Vakalatnama", "Legal Documents", true, "Rafiq Islam", staff.id, [
+   363→    "VAKALATNAMA",
+   364→    "Case: CS-123/2026 — District & Sessions Judge Court, Cumilla",
+   365→    "I, Abdul Karim, do hereby appoint Adv. Mahmudul Hasan, Advocate,",
+   366→    "to act and appear for me in the above-named case.",
+   367→    "Signed this day at Cumilla.",
+   368→  ])
+   369→  await seedDoc(c1.id, "Plaint Copy (Certified)", "Petition", "Legal Documents", true, "Rafiq Islam", staff.id, [
+   370→    "CERTIFIED COPY OF PLAINT",
+   371→    "Title Suit No. 123 of 2026",
+   372→    "Court of the District & Sessions Judge, Cumilla",
+   373→    "Plaintiff: Abdul Karim  |  Defendants: Mizanur Rahman & Sons",
+   374→  ])
+   375→  await seedDoc(c1.id, "Khatian / Porcha (BS Record)", "Evidence", "Evidence", true, "Adv. Mahmudul Hasan", lawyerUser3.id, [
+   376→    "COPY OF KHATIAN (PORCHA)",
+   377→    "Mouza: Barura, Thana: Barura, District: Cumilla",
+   378→    "Khatian No. 412, Dag No. 1180 — Area 0.32 acre",
+   379→  ])
+   380→  await seedDoc(c1.id, "Status Quo Order — 12 Jan 2026", "Court Order", "Court Orders", false, "Adv. Mahmudul Hasan", lawyerUser3.id, [
+   381→    "COURT ORDER",
+   382→    "Status quo directed to be maintained over the suit land",
+   383→    "until further orders. Next date fixed for injunction hearing.",
+   384→  ])
+   385→
+   386→  await seedDoc(c2.id, "FIR Copy — Paltan PS No. 118/2026", "FIR / GD Copy", "Legal Documents", true, "Rafiq Islam", staff.id, [
+   387→    "FIRST INFORMATION REPORT (COPY)",
+   388→    "Paltan Model Thana, Dhaka — FIR No. 118/2026",
+   389→    "Sections: 406/420 of the Penal Code, 1860",
+   390→  ])
+   391→  await seedDoc(c2.id, "Regular Bail Petition", "Petition", "Legal Documents", false, "Adv. Kamal Hossain", lawyerUser1.id, [
+   392→    "REGULAR BAIL PETITION",
+   393→    "In the Court of the Chief Metropolitan Magistrate, Dhaka",
+   394→    "Accused: Jahangir Alam — GR Case 456/2026",
+   395→  ])
+   396→  await seedDoc(c2.id, "NID of Accused & Surety", "NID / Supporting Documents", "Client Documents", true, "Rafiq Islam", staff.id, [
+   397→    "SUPPORTING DOCUMENTS",
+   398→    "National ID copies of the accused and proposed surety.",
+   399→  ])
+   400→
+   401→  await seedDoc(c3.id, "Maintenance Petition (MFLO 1961)", "Petition", "Legal Documents", true, "Adv. Nusrat Jahan", lawyerUser2.id, [
+   402→    "PETITION UNDER MUSLIM FAMILY LAWS ORDINANCE, 1961",
+   403→    "Family Court, Cumilla — Case FC-789/2026",
+   404→    "Claim: Monthly maintenance for petitioner and minor child.",
+   405→  ])
+   406→  await seedDoc(c3.id, "Marriage Certificate (Nikahnama)", "NID / Supporting Documents", "Client Documents", true, "Adv. Nusrat Jahan", lawyerUser2.id, [
+   407→    "NIKAHNAMA (COPY)",
+   408→    "Marriage solemnised at Nangalkot, Cumilla on 14 March 2019.",
+   409→  ])
+   410→
+   411→  await seedDoc(c4.id, "Writ Petition — Article 102", "Petition", "Legal Documents", false, "Adv. Kamal Hossain", lawyerUser1.id, [
+   412→    "WRIT PETITION UNDER ARTICLE 102 OF THE CONSTITUTION",
+   413→    "High Court Division, Supreme Court of Bangladesh",
+   414→    "Writ Petition No. 101 of 2026 — Rule Nisi issued.",
+   415→  ])
+   416→  await seedDoc(c4.id, "Customs Assessment Order (Challenged)", "Evidence", "Evidence", false, "Rafiq Islam", staff.id, [
+   417→    "IMPUGNED ASSESSMENT ORDER",
+   418→    "Office of the Commissioner of Customs, Chattogram.",
+   419→  ])
+   420→
+   421→  await seedDoc(c5.id, "Final Judgment & Decree", "Judgment", "Court Orders", true, "Adv. Nusrat Jahan", lawyerUser2.id, [
+   422→    "JUDGMENT AND DECREE",
+   423→    "Money Suit No. 202 of 2025 — District & Sessions Judge Court, Chattogram",
+   424→    "Decreed on compromise. Suit disposed of as settled out of court.",
+   425→  ])
+   426→  await seedDoc(c5.id, "Compromise Petition (Salish)", "Agreement", "Legal Documents", true, "Adv. Nusrat Jahan", lawyerUser2.id, [
+   427→    "COMPROMISE PETITION",
+   428→    "Terms of settlement executed before the honourable court.",
+   429→  ])
+   430→
+   431→  await seedDoc(c6.id, "Complaint Letter to Labour Inspector", "Petition", "Legal Documents", false, "Rafiq Islam", staff.id, [
+   432→    "COMPLAINT UNDER THE LABOUR ACT, 2006",
+   433→    "Chief Inspector of Factories and Establishments, Dhaka.",
+   434→  ])
+   435→
+   436→  // ================= HEARINGS =================
+   437→  await db.hearing.createMany({
+   438→    data: [
+   439→      // c1 — land case
+   440→      {
+   441→        caseId: c1.id,
+   442→        hearingDate: dhakaAt(-7, 10),
+   443→        court: "District & Sessions Judge Court, Cumilla",
+   444→        judge: "District & Sessions Judge",
+   445→        hearingType: "Regular Hearing",
+   446→        status: "COMPLETED",
+   447→        notes: "Defendants' lawyer sought time for filing written statement.",
+   448→        summary: "Written statement filed after cost of ৳2,000. Matter proceeded to evidence stage.",
+   449→        courtOrder: "Cost imposed on defendants; evidence of plaintiff to be recorded on next date.",
+   450→        nextAction: "Prepare plaintiff (PW-1) for deposition",
+   451→        nextHearingDate: dhakaAt(0, 10),
+   452→        createdById: staff.id,
+   453→      },
+   454→      {
+   455→        caseId: c1.id,
+   456→        hearingDate: dhakaAt(0, 10),
+   457→        court: "District & Sessions Judge Court, Cumilla",
+   458→        judge: "District & Sessions Judge",
+   459→        hearingType: "Evidence / Deposition",
+   460→        status: "UPCOMING",
+   461→        notes: "PW-1 deposition to be recorded. Bring original porcha copy.",
+   462→        createdById: staff.id,
+   463→      },
+   464→      {
+   465→        caseId: c1.id,
+   466→        hearingDate: dhakaAt(14, 10),
+   467→        court: "District & Sessions Judge Court, Cumilla",
+   468→        judge: "District & Sessions Judge",
+   469→        hearingType: "Regular Hearing",
+   470→        status: "UPCOMING",
+   471→        createdById: staff.id,
+   472→      },
+   473→      // c2 — bail
+   474→      {
+   475→        caseId: c2.id,
+   476→        hearingDate: dhakaAt(-14, 9),
+   477→        court: "Metropolitan Magistrate Court, Dhaka",
+   478→        judge: "Chief Metropolitan Magistrate",
+   479→        hearingType: "Bail Hearing",
+   480→        status: "COMPLETED",
+   481→        summary: "Bail petition heard; court sought case diary from prosecution.",
+   482→        courtOrder: "Case diary called for; bail matter fixed for orders.",
+   483→        nextAction: "Submit surety papers",
+   484→        nextHearingDate: dhakaAt(1, 9),
+   485→      },
+   486→      {
+   487→        caseId: c2.id,
+   488→        hearingDate: dhakaAt(1, 9),
+   489→        court: "Metropolitan Magistrate Court, Dhaka",
+   490→        judge: "Chief Metropolitan Magistrate",
+   491→        hearingType: "Bail Hearing",
+   492→        status: "UPCOMING",
+   493→        notes: "Order on bail expected. Client and surety must be present.",
+   494→      },
+   495→      // c3 — family
+   496→      {
+   497→        caseId: c3.id,
+   498→        hearingDate: dhakaAt(-10, 11),
+   499→        court: "Family Court, Cumilla",
+   500→        judge: "Judge, Family Court",
+   501→        hearingType: "Framing of Charge",
+   502→        status: "ADJOURNED",
+   503→        notes: "Defendant absent; summons served. Case adjourned ex parte step.",
+   504→        summary: "Defendant did not appear despite service of summons.",
+   505→        nextAction: "Move for ex parte hearing",
+   506→        nextHearingDate: dhakaAt(3, 11),
+   507→      },
+   508→      {
+   509→        caseId: c3.id,
+   510→        hearingDate: dhakaAt(3, 11),
+   511→        court: "Family Court, Cumilla",
+   512→        judge: "Judge, Family Court",
+   513→        hearingType: "Regular Hearing",
+   514→        status: "UPCOMING",
+   515→        notes: "Ex parte evidence to be recorded if defendant remains absent.",
+   516→      },
+   517→      // c4 — writ
+   518→      {
+   519→        caseId: c4.id,
+   520→        hearingDate: dhakaAt(30, 10),
+   521→        court: "High Court Division, Supreme Court of Bangladesh",
+   522→        judge: "Hon'ble Justice Bench 4",
+   523→        hearingType: "Order Date",
+   524→        status: "UPCOMING",
+   525→        notes: "Rule Nisi returnable date. Advocate-on-record to file supplementary affidavit.",
+   526→      },
+   527→      // c5 — closed civil case
+   528→      {
+   529→        caseId: c5.id,
+   530→        hearingDate: dhakaAt(-30, 10),
+   531→        court: "District & Sessions Judge Court, Chattogram",
+   532→        judge: "District & Sessions Judge",
+   533→        hearingType: "Judgment",
+   534→        status: "COMPLETED",
+   535→        summary: "Compromise decree drawn up. Suit disposed of as settled out of court.",
+   536→        courtOrder: "Decree on compromise; each party to bear own costs.",
+   537→        nextAction: "Execute settlement instalments (completed)",
+   538→      },
+   539→      // c6 — labour (on hold)
+   540→      {
+   541→        caseId: c6.id,
+   542→        hearingDate: dhakaAt(7, 10),
+   543→        court: "Labour Court, Dhaka",
+   544→        judge: "Chairman, Labour Court",
+   545→        hearingType: "Miscellaneous",
+   546→        status: "UPCOMING",
+   547→        notes: "Time petition for compliance filing — subject to audit report.",
+   548→      },
+   549→    ],
+   550→  })
+   551→
+   552→  // ================= INVOICES & PAYMENTS =================
+   553→  const inv1 = await db.invoice.create({
+   554→    data: {
+   555→      invoiceNumber: "INV-2026-0001",
+   556→      caseId: c1.id,
+   557→      clientId: client1.id,
+   558→      billingType: "Lawyer Fee",
+   559→      description: "Professional fee for land suit — evidence stage (1st tranche)",
+   560→      amount: 50000,
+   561→      dueDate: dateOnly(10),
+   562→      status: "PARTIAL",
+   563→      createdById: admin.id,
+   564→    },
+   565→  })
+   566→  const inv2 = await db.invoice.create({
+   567→    data: {
+   568→      invoiceNumber: "INV-2026-0002",
+   569→      caseId: c1.id,
+   570→      clientId: client1.id,
+   571→      billingType: "Case Filing Fee",
+   572→      description: "Court filing & process fees — Title Suit 123/2026",
+   573→      amount: 15000,
+   574→      dueDate: dateOnly(-5),
+   575→      status: "UNPAID",
+   576→      createdById: admin.id,
+   577→    },
+   578→  })
+   579→  const inv3 = await db.invoice.create({
+   580→    data: {
+   581→      invoiceNumber: "INV-2026-0003",
+   582→      caseId: c2.id,
+   583→      clientId: client3.id,
+   584→      billingType: "Lawyer Fee",
+   585→      description: "Bail matter — full professional fee",
+   586→      amount: 30000,
+   587→      dueDate: dateOnly(20),
+   588→      status: "PAID",
+   589→      createdById: admin.id,
+   590→    },
+   591→  })
+   592→  const inv4 = await db.invoice.create({
+   593→    data: {
+   594→      invoiceNumber: "INV-2026-0004",
+   595→      caseId: c4.id,
+   596→      clientId: client2.id,
+   597→      billingType: "Court Fee",
+   598→      description: "Writ petition court fee & advocate-on-record charges",
+   599→      amount: 8000,
+   600→      dueDate: dateOnly(15),
+   601→      status: "UNPAID",
+   602→      createdById: admin.id,
+   603→    },
+   604→  })
+   605→  const inv5 = await db.invoice.create({
+   606→    data: {
+   607→      invoiceNumber: "INV-2026-0005",
+   608→      caseId: c5.id,
+   609→      clientId: client4.id,
+   610→      billingType: "Lawyer Fee",
+   611→      description: "Money recovery suit — final professional fee",
+   612→      amount: 60000,
+   613→      dueDate: dateOnly(-30),
+   614→      status: "PAID",
+   615→      createdById: admin.id,
+   616→    },
+   617→  })
+   618→  const inv6 = await db.invoice.create({
+   619→    data: {
+   620→      invoiceNumber: "INV-2026-0006",
+   621→      caseId: c3.id,
+   622→      clientId: client3.id,
+   623→      billingType: "Consultation Fee",
+   624→      description: "Initial consultation & case strategy session",
+   625→      amount: 5000,
+   626→      dueDate: dateOnly(-15),
+   627→      status: "PAID",
+   628→      createdById: admin.id,
+   629→    },
+   630→  })
+   631→
+   632→  await db.payment.createMany({
+   633→    data: [
+   634→      {
+   635→        invoiceId: inv1.id,
+   636→        amount: 20000,
+   637→        paymentMethod: "bKash",
+   638→        paymentDate: dhakaAt(-9, 14),
+   639→        referenceNumber: "BKX-7734012",
+   640→        notes: "1st tranche received via bKash personal",
+   641→        receivedById: admin.id,
+   642→        receivedByName: "Arif Rahman",
+   643→      },
+   644→      {
+   645→        invoiceId: inv3.id,
+   646→        amount: 30000,
+   647→        paymentMethod: "Cash",
+   648→        paymentDate: dhakaAt(-6, 12),
+   649→        referenceNumber: "MONEY-RCPT-014",
+   650→        notes: "Full payment received at chamber",
+   651→        receivedById: admin.id,
+   652→        receivedByName: "Arif Rahman",
+   653→      },
+   654→      {
+   655→        invoiceId: inv5.id,
+   656→        amount: 60000,
+   657→        paymentMethod: "Bank Transfer",
+   658→        paymentDate: dhakaAt(-28, 15),
+   659→        referenceNumber: "BRAC-A/C-1501-8892",
+   660→        notes: "NEFT from Dhaka Traders corporate account",
+   661→        receivedById: admin.id,
+   662→        receivedByName: "Arif Rahman",
+   663→      },
+   664→      {
+   665→        invoiceId: inv6.id,
+   666→        amount: 5000,
+   667→        paymentMethod: "Nagad",
+   668→        paymentDate: dhakaAt(-16, 10),
+   669→        referenceNumber: "NGD-5520198",
+   670→        receivedById: staff.id,
+   671→        receivedByName: "Rafiq Islam",
+   672→      },
+   673→    ],
+   674→  })
+   675→
+   676→  // ================= CASE UPDATES =================
+   677→  await db.caseUpdate.createMany({
+   678→    data: [
+   679→      {
+   680→        caseId: c1.id,
+   681→        update: "Written statement filed by defendants. Court imposed ৳2,000 cost for delay.",
+   682→        createdById: lawyerUser3.id,
+   683→        createdByName: "Adv. Mahmudul Hasan",
+   684→        createdAt: dhakaAt(-7, 12),
+   685→      },
+   686→      {
+   687→        caseId: c1.id,
+   688→        update: "Evidence date fixed. Client advised to bring original Khatian and boundary map.",
+   689→        createdById: staff.id,
+   690→        createdByName: "Rafiq Islam",
+   691→        createdAt: dhakaAt(-2, 16),
+   692→      },
+   693→      {
+   694→        caseId: c2.id,
+   695→        update: "Case diary called for by the court. Bail order expected on next date.",
+   696→        createdById: lawyerUser1.id,
+   697→        createdByName: "Adv. Kamal Hossain",
+   698→        createdAt: dhakaAt(-14, 13),
+   699→      },
+   700→      {
+   701→        caseId: c3.id,
+   702→        update: "Defendant served with summons but absent. Next step: ex parte evidence.",
+   703→        createdById: lawyerUser2.id,
+   704→        createdByName: "Adv. Nusrat Jahan",
+   705→        createdAt: dhakaAt(-10, 14),
+   706→      },
+   707→      {
+   708→        caseId: c4.id,
+   709→        update: "Rule Nisi issued by the High Court Division. Supplementary affidavit being prepared.",
+   710→        createdById: lawyerUser1.id,
+   711→        createdByName: "Adv. Kamal Hossain",
+   712→        createdAt: dhakaAt(-5, 11),
+   713→      },
+   714→      {
+   715→        caseId: c5.id,
+   716→        update: "Suit settled through salish. Compromise decree drawn; final instalment received.",
+   717→        createdById: lawyerUser2.id,
+   718→        createdByName: "Adv. Nusrat Jahan",
+   719→        createdAt: dhakaAt(-30, 12),
+   720→      },
+   721→      {
+   722→        caseId: c6.id,
+   723→        update: "Matter on hold pending internal provident fund audit report from finance team.",
+   724→        createdById: staff.id,
+   725→        createdByName: "Rafiq Islam",
+   726→        createdAt: dhakaAt(-3, 10),
+   727→      },
+   728→    ],
+   729→  })
+   730→
+   731→  // ================= NOTIFICATIONS =================
+   732→  await db.notification.createMany({
+   733→    data: [
+   734→      {
+   735→        userId: admin.id,
+   736→        title: "Hearing Today — CS-123/2026",
+   737→        message: "Evidence / Deposition at District & Sessions Judge Court, Cumilla — 10:00 AM.",
+   738→        type: "HEARING",
+   739→        caseId: c1.id,
+   740→        link: `case-detail:${c1.id}`,
+   741→      },
+   742→      {
+   743→        userId: admin.id,
+   744→        title: "Payment Received — ৳30,000",
+   745→        message: "Cash payment received for INV-2026-0003 (bail matter, Shirin Akter).",
+   746→        type: "BILLING",
+   747→      },
+   748→      {
+   749→        userId: admin.id,
+   750→        title: "Invoice Overdue — INV-2026-0002",
+   751→        message: "Case filing fee ৳15,000 for CS-123/2026 (Abdul Karim) is past due.",
+   752→        type: "BILLING",
+   753→        caseId: c1.id,
+   754→        link: `case-detail:${c1.id}`,
+   755→      },
+   756→      {
+   757→        userId: lawyerUser1.id,
+   758→        title: "Bail Order Tomorrow — CR-456/2026",
+   759→        message: "Order on bail expected. Client and surety must be present at 9:00 AM.",
+   760→        type: "HEARING",
+   761→        caseId: c2.id,
+   762→        link: `case-detail:${c2.id}`,
+   763→      },
+   764→      {
+   765→        userId: clientUser1.id,
+   766→        title: "Hearing Today — CS-123/2026",
+   767→        message: "Your land case hearing is scheduled today at 10:00 AM, District & Sessions Judge Court, Cumilla.",
+   768→        type: "HEARING",
+   769→        caseId: c1.id,
+   770→        link: `case-detail:${c1.id}`,
+   771→      },
+   772→      {
+   773→        userId: clientUser1.id,
+   774→        title: "Invoice Overdue — INV-2026-0002",
+   775→        message: "Your invoice of ৳15,000 (case filing fee) is past due. Please clear at your earliest.",
+   776→        type: "BILLING",
+   777→        caseId: c1.id,
+   778→        link: `case-detail:${c1.id}`,
+   779→      },
+   780→    ],
+   781→  })
+   782→
+   783→  // ================= SUMMARY =================
+   784→  const counts = {
+   785→    users: await db.user.count(),
+   786→    lawyers: await db.lawyer.count(),
+   787→    clients: await db.client.count(),
+   788→    cases: await db.case.count(),
+   789→    hearings: await db.hearing.count(),
+   790→    documents: await db.caseDocument.count(),
+   791→    invoices: await db.invoice.count(),
+   792→    payments: await db.payment.count(),
+   793→    updates: await db.caseUpdate.count(),
+   794→    notifications: await db.notification.count(),
+   795→  }
+   796→  console.log("Seed complete:", counts)
+   797→  console.log(`
+   798→Demo accounts (passwords included):
+   799→  Admin  : admin@ainsheba.bd  / Admin@123
+   800→  Lawyer : kamal@ainsheba.bd  / Lawyer@123  (also nusrat@ / mahmud@)
+   801→  Staff  : staff@ainsheba.bd  / Staff@123
+   802→  Client : client@ainsheba.bd / Client@123
+   803→`)
+   804→}
+   805→
+   806→main()
+   807→  .catch((e) => {
+   808→    console.error("Seed failed:", e)
+   809→    process.exit(1)
+   810→  })
+   811→  .finally(async () => {
+   812→    await db.$disconnect()
+   813→  })
+   814→
