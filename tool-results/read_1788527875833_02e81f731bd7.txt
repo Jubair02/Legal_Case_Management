@@ -1,0 +1,222 @@
+    25→- `src/lib/constants.ts` — CASE_TYPES, CASE_STATUSES, CASE_STATUS_LABELS, CASE_PRIORITIES, PRIORITY_LABELS, COURTS, DISTRICTS, HEARING_TYPES, HEARING_STATUSES, HEARING_STATUS_LABELS, DOCUMENT_TYPES, DOCUMENT_CATEGORIES, BILLING_TYPES, PAYMENT_METHODS, INVOICE_STATUSES, SPECIALIZATIONS, CLIENT_TYPES, CLIENT_TYPE_LABELS, ROLE_LABELS, ROLES, MAX_FILE_SIZE, ALLOWED_MIME_PREFIXES, APP_NAME, APP_NAME_BN, APP_TAGLINE, CURRENCY_SYMBOL.
+    26→- `src/lib/password.ts` — `hashPassword(pw)`, `verifyPassword(pw, stored)`.
+    27→- `src/lib/auth.ts` — `signSession`, `verifySessionToken`, `setSessionCookie(token)`, `clearSessionCookie()`, `getSessionUser(): Promise<SessionUser|null>`, `SESSION_COOKIE`, `SessionUser { id, name, email, phone, role, status, lawyerProfile: {id,name,specialization}|null, clientProfile: {id,name}|null }`.
+    28→- `src/lib/api-helpers.ts` — `ok(data, status?)`, `err(message, status?, code?)`, `ApiError`, `handle(fn)` (wraps handler, catches ApiError), `requireAuth(roles?)` (throws 401/403), `readJson<T>(request)`, `requireString(v, field)`, `optionalString(v)`, `requireNumber(v, field)`, `parseDateOnly("YYYY-MM-DD") → Date|null` (noon Dhaka).
+    29→- `src/lib/permissions.ts` — `isAdmin`, `isStaffOrAdmin`, `isFinancialRole`, `assertCaseReadAccess(user, caseId)` (throws 404/403, returns case), `assertCaseWriteAccess`, `caseScopeWhere(user, extra?)` → Prisma where scoping by role.
+    30→- `src/lib/dates.ts` — `dhakaDateKey(d?)`, `dhakaDayStart(key)`, `dhakaDayRange(key)` `{start,end}` UTC instants for a Dhaka civil day, `dhakaDayOffset(n)` "YYYY-MM-DD" for n days from today (Dhaka), `daysFromToday(d)`.
+    31→- `src/lib/utils.ts` — `cn`, `formatCurrency`, `formatDate`, `formatDateTime`, `formatRelativeDay` ("Today"/"Tomorrow"), `toDateInputValue`, `formatFileSize`, `initials`, badge style maps: `caseStatusStyles`, `priorityStyles`, `hearingStatusStyles`, `invoiceStatusStyles`, `clientTypeStyles` (each `{label, className}`).
+    32→
+    33→## Seed data & demo accounts (already in DB)
+    34→- Admin: `admin@ainsheba.bd / Admin@123` (Arif Rahman)
+    35→- Lawyers: `kamal@ainsheba.bd / Lawyer@123` (Kamal Hossain — Criminal), `nusrat@ainsheba.bd / Lawyer@123` (Nusrat Jahan — Family), `mahmud@ainsheba.bd / Lawyer@123` (Mahmudul Hasan — Land)
+    36→- Staff: `staff@ainsheba.bd / Staff@123` (Rafiq Islam)
+    37→- Client portal: `client@ainsheba.bd / Client@123` (Abdul Karim → client profile)
+    38→- 6 cases (CS-123/2026 land ACTIVE, CR-456/2026 bail URGENT, FC-789/2026 family, WR-101/2026 writ PENDING, CS-202/2025 CLOSED, LB-303/2026 ON_HOLD), hearings incl. one TODAY, 13 documents (real PDFs in `uploads/seed/`), 6 invoices, 4 payments, 7 case updates, 6 notifications.
+    39→
+    40→## RBAC matrix (enforce server-side)
+    41→| Capability | ADMIN | STAFF | LAWYER | CLIENT |
+    42→|---|---|---|---|---|
+    43→| Manage users/settings | ✓ | ✗ | ✗ | ✗ |
+    44→| Create/edit cases, clients | ✓ | ✓ | ✗ | ✗ |
+    45→| View all cases | ✓ | ✓ | assigned only | own only |
+    46→| Edit assigned case, hearings, docs, updates | ✓ | ✓ | assigned only | ✗ |
+    47→| Upload documents | ✓ | ✓ | assigned cases | ✗ |
+    48→| View/download documents | ✓ | ✓ | assigned cases | sharedWithClient=true only |
+    49→| Invoices/payments create+manage | ✓ | ✗ | ✗ | ✗ |
+    50→| View invoices/payments | ✓ | ✗ | own cases (read) | own only (read) |
+    51→| Financial reports | ✓ | ✗ | ✗ | ✗ |
+    52→| Notifications | own | own | own | own |
+    53→
+    54→---
+    55→
+    56→## API CONTRACT (all routes under `src/app/api/...`)
+    57→
+    58→Every route: success `ok(data)` → 200 `{data}`; errors via `ApiError`/`err`. Auth required on ALL except login. Use `handle(async () => {...})` wrapper.
+    59→
+    60→### Auth
+    61→- `POST /api/auth/login` body `{ email, password }` → `{ data: SessionUser }` + sets cookie. 401 "Invalid email or password." Reject INACTIVE users (403). Case-insensitive email lookup.
+    62→- `POST /api/auth/logout` → clears cookie → `{ data: { ok: true } }`.
+    63→- `GET /api/auth/me` → `{ data: SessionUser | null }` (null if no session, do NOT 401).
+    64→
+    65→### Dashboard — `GET /api/dashboard` (role-aware; single endpoint)
+    66→Returns `{ data: DashboardResponse }` where shape depends on role:
+    67→```ts
+    68→// ADMIN
+    69→{ role: "ADMIN", stats: { totalCases, activeCases, upcomingHearings, closedCases, pendingAmount, pendingInvoiceCount, totalClients, totalLawyers },
+    70→  todaysHearings: HearingDTO[], upcomingHearings: HearingDTO[], // upcoming = next 7 days, take 6
+    71→  recentActivities: { id, kind: "CASE"|"HEARING"|"PAYMENT"|"UPDATE"|"DOCUMENT", title, description, createdAt }[] } // merged latest 8
+    72→// LAWYER
+    73→{ role: "LAWYER", stats: { myActiveCases, todaysHearings, upcomingHearings, pendingClientPayments },
+    74→  todaysHearings: HearingDTO[], upcomingHearings: HearingDTO[], myCases: CaseListDTO[] } // recent 5
+    75→// CLIENT
+    76→{ role: "CLIENT", stats: { totalCases, activeCases, nextHearingDate: string|null, outstandingAmount },
+    77→  myCases: CaseListDTO[], nextHearing: HearingDTO|null, recentUpdates: { id, caseId, caseNumber, caseTitle, update, createdByName, createdAt }[], // latest 5
+    78→  outstandingInvoices: InvoiceDTO[] } // unpaid/partial/overdue
+    79→// STAFF
+    80→{ role: "STAFF", stats: { totalCases, activeCases, todaysHearings, upcomingHearings, totalClients },
+    81→  todaysHearings: HearingDTO[], upcomingHearings: HearingDTO[], recentCases: CaseListDTO[] }
+    82→```
+    83→- "Today"/"upcoming 7 days" computed with `@/lib/dates` (`dhakaDayRange(dhakaDayOffset(0))` etc.).
+    84→- HearingDTO always includes `caseNumber` + `caseTitle`.
+    85→- pendingClientPayments = sum unpaid portion of invoices on lawyer's cases. pendingAmount (admin) = sum of (amount - paid) for UNPAID/PARTIAL/OVERDUE invoices.
+    86→
+    87→### Users (ADMIN only) — for Settings > User Management
+    88→- `GET /api/users?search=&role=` → `{ data: UserDTO[] }`, `UserDTO { id, name, email, phone, role, status, createdAt, linkedName? }` (linkedName = lawyer/client profile name if any).
+    89→- `POST /api/users` body `{ name, email, password, phone?, role }` → creates user. Validate email unique (409), role in ROLES, password min 6.
+    90→- `PATCH /api/users/[id]` body `{ name?, phone?, role?, status?, password? }` → updated UserDTO. Prevent demoting/deactivating self (400). Prevent modifying another ADMIN's role by non-self admin? keep simple: cannot change own role/status.
+    91→- `DELETE /api/users/[id]` → 400 if self; 409 if user has lawyer/client profile with cases; else delete (cascade notifications fine). Delete linked empty lawyer/client profile too.
+    92→
+    93→### Lawyers
+    94→- `GET /api/lawyers` (ADMIN, STAFF; also LAWYER/CLIENT allowed for read of basic list) → `{ data: LawyerDTO[] }`, `LawyerDTO { id, userId, name, phone, email, barCouncilId, specialization, chamberName, experience, status, totalCases, activeCases, createdAt }`. Support `?specialization=&status=&search=`.
+    95→- `POST /api/lawyers` (ADMIN) body `{ name, phone?, email, barCouncilId?, specialization?, chamberName?, experience?, createPortalAccess?, password? }` → creates lawyer; if createPortalAccess → creates linked User (role LAWYER, email, password required, min 6) and connects. 409 if email taken.
+    96→- `GET /api/lawyers/[id]` → LawyerDTO + `cases: CaseListDTO[]` (their cases).
+    97→- `PATCH /api/lawyers/[id]` (ADMIN) body any of the fields + `status`. If name/email changes, sync linked user name/email when applicable.
+    98→- `DELETE /api/lawyers/[id]` (ADMIN) → 409 if has cases; else delete profile + linked user.
+    99→
+   100→### Clients
+   101→- `GET /api/clients` (ADMIN, STAFF; LAWYER gets clients having cases assigned to them) → `{ data: ClientDTO[] }`, `ClientDTO { id, userId, name, phone, email, nid, address, clientType, caseCount, activeCaseCount, portalEmail? (linked user email), createdAt }`. Support `?search=&clientType=&hasPortal=`.
+   102→- `POST /api/clients` (ADMIN, STAFF) body `{ name, phone?, email?, nid?, address?, clientType?, createPortalAccess?, password? }` → ClientDTO. If createPortalAccess → creates User (role CLIENT) with email required+unique.
+   103→- `GET /api/clients/[id]` (ADMIN/STAFF; LAWYER if client has case assigned to them; CLIENT if own profile) → ClientDTO + `cases: CaseListDTO[]` + `invoices: InvoiceDTO[]` (admin/staff only for invoices).
+   104→- `PATCH /api/clients/[id]` (ADMIN, STAFF) same pattern; sync portal user name.
+   105→- `DELETE /api/clients/[id]` (ADMIN) → 409 if has cases or invoices.
+   106→
+   107→### Cases
+   108→- `GET /api/cases?view=all|active|closed&status=&type=&lawyerId=&clientId=&priority=&search=` → `{ data: CaseListDTO[] }` sorted newest filing/created first.
+   109→  - Role scoped via `caseScopeWhere`.
+   110→  - `CaseListDTO { id, caseNumber, title, type, status, priority, court, district, filingDate, oppositeParty, client: {id, name, phone}, lawyer: {id, name} | null, nextHearingDate: string|null, lastUpdate: string|null, createdAt }`.
+   111→  - `view=active` → status IN (ACTIVE, PENDING, ON_HOLD); `view=closed` → status IN (RESOLVED, CLOSED).
+   112→  - `search` matches caseNumber, title, oppositeParty (case-insensitive `contains`).
+   113→  - `nextHearingDate` = min future hearingDate with status UPCOMING (computed in JS after fetching hearings select only needed cols; avoid heavy includes — fetch hearings for these case ids in one query where hearingDate >= now, status UPCOMING, pick earliest per case).
+   114→- `POST /api/cases` (ADMIN, STAFF) body `{ caseNumber, title, type, clientId, lawyerId?, court, district?, filingDate? "YYYY-MM-DD", status?, priority?, oppositeParty?, description? }` → `CaseDetailDTO`. 409 on duplicate caseNumber. Auto CaseUpdate "Case registered…" entry. Notify assigned lawyer + client portal user + admins (skip actor).
+   115→- `GET /api/cases/[id]` (role-scoped) → `CaseDetailDTO = CaseListDTO & { description, resolutionSummary, outcome, closedAt, documents: DocumentDTO[], hearings: HearingDTO[], updates: UpdateDTO[], invoices: InvoiceDTO[] }` (invoices included only for ADMIN and assigned LAWYER and owning CLIENT; STAFF gets invoices: [] — staff has no financial access).
+   116→  - `DocumentDTO { id, caseId, documentName, documentType, category, fileName, fileSize, mimeType, sharedWithClient, uploadedByName, createdAt }` (NOT filePath).
+   117→  - `HearingDTO { id, caseId, caseNumber, caseTitle, hearingDate, court, judge, hearingType, status, notes, summary, courtOrder, nextAction, nextHearingDate, createdAt }` sorted hearingDate desc.
+   118→  - `UpdateDTO { id, caseId, update, createdByName, createdAt }` sorted desc.
+   119→  - CLIENT sees only `documents` where sharedWithClient=true.
+   120→- `PATCH /api/cases/[id]` (ADMIN, STAFF, assigned LAWYER) body any fields incl `status`. When status becomes CLOSED/RESOLVED require `resolutionSummary` (422 if missing) and set `closedAt=now`; allowed `outcome`. LAWYER cannot change clientId/lawyerId (403 if attempted). If lawyerId changes and case reassigns → notify new lawyer. Status CLOSED also auto-mark? no.
+   121→- `DELETE /api/cases/[id]` (ADMIN only) → deletes cascade case docs (delete files from disk best-effort), hearings, updates; 409 if invoices exist.
+   122→
+   123→### Case sub-resources
+   124→- `POST /api/cases/[id]/updates` (ADMIN, STAFF, assigned LAWYER) body `{ update }` → UpdateDTO. Notify client portal user + (other) lawyer.
+   125→- `POST /api/cases/[id]/documents` (ADMIN, STAFF, assigned LAWYER) — **multipart FormData**: fields `file` (required), `documentName` (required, default file name), `documentType?`, `category?`, `sharedWithClient? "true"/"false"`. Validate size ≤ 10MB and mime prefix in ALLOWED_MIME_PREFIXES (pdf, image/*, doc/docx, txt) else 422. Save `uploads/<caseId>/<Date.now()>-<safeName>`. → DocumentDTO. Notify client portal user when sharedWithClient.
+   126→- `PATCH /api/documents/[id]` (ADMIN, uploader, STAFF, assigned LAWYER) body `{ sharedWithClient?, documentName?, category? }` → DocumentDTO.
+   127→- `DELETE /api/documents/[id]` (ADMIN, uploader, STAFF) → deletes file from disk (best effort) + row. LAWYER assigned can delete? → yes for assigned case; CLIENT never.
+   128→- `GET /api/files/[documentId]` (auth; role-checked like case read; CLIENT only if sharedWithClient) → binary file response with `Content-Type` stored mimeType; `?download=1` → `Content-Disposition: attachment; filename*=UTF-8''<encoded>`. 404 if file missing on disk.
+   129→
+   130→### Hearings
+   131→- `GET /api/hearings?filter=all|today|upcoming|past&caseId=&from=YYYY-MM-DD&to=YYYY-MM-DD` → `{ data: HearingDTO[] }` sorted hearingDate asc (past → desc). Role-scoped: ADMIN/STAFF all, LAWYER assigned cases, CLIENT own cases. `today` uses `dhakaDayRange(dhakaDayOffset(0))`; `upcoming` = date >= now (status UPCOMING), `past` = date < today (or status in COMPLETED/ADJOURNED/POSTPONED/CANCELLED with date < today).
+   132→- `POST /api/cases/[id]/hearings` (ADMIN, STAFF, assigned LAWYER) body `{ hearingDate "YYYY-MM-DD" (required), hearingType?, court?, judge?, notes?, nextHearingDate? ignored here }` → HearingDTO. Notify client user + lawyer (skip actor) + admins.
+   133→- `PATCH /api/hearings/[id]` (ADMIN, STAFF, assigned LAWYER) body `{ status?, notes?, summary?, courtOrder?, nextAction?, nextHearingDate? "YYYY-MM-DD", hearingDate?, hearingType?, judge? }` → HearingDTO. When status set to COMPLETED/ADJOURNED/POSTPONED: require `summary` optional but if `nextHearingDate` provided create a new linked UPCOMING hearing on that date automatically (dedupe: same case + same date + UPCOMING exists → skip). Notify client + lawyer about hearing update.
+   134→
+   135→### Invoices (ADMIN only for write; LAWYER/CLIENT read-own; STAFF 403 everywhere)
+   136→- `GET /api/invoices?status=&clientId=&caseId=&search=` → `{ data: InvoiceDTO[] }`. Role: ADMIN all; LAWYER → invoices of assigned cases; CLIENT → own clientId only.
+   137→  - `InvoiceDTO { id, invoiceNumber, caseId, caseNumber?, caseTitle?, clientId, clientName, billingType, description, amount, paidAmount, dueDate, status, payments: PaymentDTO[], createdAt }`.
+   138→  - `status` recomputed at read time: paidAmount = sum(payments); CANCELLED stays; else paid>=amount → PAID; paid>0 → PARTIAL; else dueDate < today(Dhaka) → OVERDUE else UNPAID. Persist computed status too (update row) to keep stored value fresh.
+   139→- `POST /api/invoices` (ADMIN) body `{ caseId?, clientId (required), billingType?, description?, amount > 0, dueDate? "YYYY-MM-DD" }` → InvoiceDTO. Auto invoiceNumber `INV-<year>-<0001>` (count by year, retry on conflict). Notify client portal user.
+   140→- `PATCH /api/invoices/[id]` (ADMIN) body `{ billingType?, description?, amount?, dueDate?, status? (only CANCELLED toggle allowed manually) }` → InvoiceDTO.
+   141→- `DELETE /api/invoices/[id]` (ADMIN) → 409 if payments exist.
+   142→
+   143→### Payments
+   144→- `GET /api/payments?invoiceId=&clientId=&caseId=` → `{ data: PaymentDTO[] }` sorted paymentDate desc. Role same as invoices.
+   145→  - `PaymentDTO { id, invoiceId, invoiceNumber?, caseNumber?, clientName?, amount, paymentMethod, paymentDate, referenceNumber, notes, receivedByName, createdAt }`.
+   146→- `POST /api/payments` (ADMIN) body `{ invoiceId, amount > 0, paymentMethod in PAYMENT_METHODS, paymentDate? "YYYY-MM-DD", referenceNumber?, notes? }` → PaymentDTO; recompute invoice status (PAID when covered); reject amount > remaining (422, message includes remaining). Notify client portal user + admins (skip actor).
+   147→
+   148→### Notifications
+   149→- `GET /api/notifications?unread=true&take=20` → `{ data: NotificationDTO[] }` sorted createdAt desc. Also FIRST run reminder sweep for THIS user: create dedupeKey notifications `hearing-today:<hearingId>` / `hearing-tomorrow:<hearingId>` for user's scoped hearings (same role scoping) dated today/tomorrow Dhaka, type HEARING, title `Hearing Today — <caseNumber>` / `Hearing Tomorrow — <caseNumber>`, link `case-detail:<caseId>`. Never duplicate (check dedupeKey+userId).
+   150→  - `NotificationDTO { id, title, message, type, caseId, link, isRead, createdAt }`.
+   151→- `GET /api/notifications/unread-count` → `{ data: { count } }`.
+   152→- `PATCH /api/notifications/[id]` body `{ isRead: true }` → NotificationDTO (own only).
+   153→- `POST /api/notifications/read-all` → `{ data: { ok: true } }` marks all own read.
+   154→
+   155→### Reports (ADMIN only; STAFF/LAWYER/CLIENT → 403)
+   156→- `GET /api/reports` → `{ data: ReportsDTO }`:
+   157→```ts
+   158→{ caseReports: { total, active, pending, onHold, resolved, closed, byType: { type, count }[], byStatus: { status, count }[], byLawyer: { lawyerId, lawyerName, total, active, closed }[] },
+   159→  financial: { totalInvoiced, totalCollected, outstanding, invoiceCount, paymentCount, byMethod: { method, amount }[] },
+   160→  hearingReports: { todays, upcoming7, completed, adjourned, thisMonth } }
+   161→```
+   162→
+   163→### Internal notification helper (shared)
+   164→Create `src/lib/notify.ts` (Task 2-b): `notifyUsers(userIds: string[], payload: { title, message, type, caseId?, link? })` — dedupe identical unread (same user+title+caseId within 1 day) optional; simple create is fine. Helpers: `adminIds()`, `lawyerUserId(lawyerId)`, `clientUserId(clientId)`.
+   165→
+   166→## Frontend contracts (Task 3+)
+   167→- SPA in `src/app/page.tsx`: fetch `/api/auth/me` on mount → `LoginScreen` or `AppShell`.
+   168→- View keys: `dashboard | cases | case-detail | clients | lawyers | hearings | documents | billing | notifications | reports | settings`.
+   169→- `navigate(view, params?)` — params e.g. `{ id: caseId }`; `case-detail` requires `{ id }`.
+   170→- `ViewProps { user: SessionUser; navigate: (view: ViewKey, params?: Record<string,string>) => void; params: Record<string,string> }`.
+   171→- Sidebar filtered by role (matrix above). Notifications bell polls `/api/notifications/unread-count` every 60s.
+   172→- No external page routes; no window.location pushes other than `/`.
+   173→
+   174→## Task log
+   175→
+   176→---
+   177→
+   178→Task ID: 2-a
+   179→Agent: backend-auth-users
+   180→Task: Implement auth (login/logout/me), users, lawyers, clients API routes per API contract.
+   181→Work Log:
+   182→- Read worklog.md, prisma/schema.prisma and all foundation libs (db, auth, api-helpers, permissions, constants, password, dates).
+   183→- Created `src/app/api/auth/login/route.ts` — POST {email,password}; case-insensitive email (lowercased query), 401 "Invalid email or password.", 403 for non-ACTIVE users, sets `lcm_session` via signSession/setSessionCookie, returns SessionUser shape incl. lawyerProfile/clientProfile.
+   184→- Created `src/app/api/auth/logout/route.ts` — POST clears cookie → `{data:{ok:true}}`.
+   185→- Created `src/app/api/auth/me/route.ts` — GET returns `ok(SessionUser|null)`, no 401 when unauthenticated.
+   186→- Created `src/app/api/users/route.ts` — ADMIN-only GET (?search=&role=) + POST (email contains @, unique 409 "A user with this email already exists.", password min 6 → 422, role validated against ROLES, emails stored lowercase, hashPassword, no hash returned, linkedName from lawyer/client profile).
+   187→- Created `src/app/api/users/[id]/route.ts` — ADMIN-only PATCH (name/phone/role/status/password; self role/status change → 400 "You cannot change your own role or status."; password min 6 + hash) and DELETE (self → 400, linked profile with cases/invoices → 409 "This user has linked records and cannot be deleted.", else transactional delete of notifications + profile + user, returns `{data:{ok:true}}`).
+   188→- Created `src/app/api/lawyers/route.ts` — GET any-authenticated (?specialization=&status=&search= matching name/email/barCouncilId; LawyerDTO with totalCases via _count and activeCases via groupBy over ACTIVE/PENDING/ON_HOLD). POST ADMIN with createPortalAccess portal logic (422 "Email is required for portal access." / password min 6, 409 dup email, creates User role LAWYER with nested lawyerProfile).
+   189→- Created `src/app/api/lawyers/[id]/route.ts` — GET any-authenticated returns LawyerDTO + lite cases (nextHearingDate = earliest future UPCOMING hearing computed in JS; case list role-scoped via caseScopeWhere so CLIENT/LAWYER only see cases they may see). PATCH ADMIN (fields + status ACTIVE/INACTIVE 422 otherwise; name/email changes sync linked user incl. lowercased email with 409 collision check). DELETE ADMIN (409 "This lawyer has assigned cases and cannot be deleted." else transactional delete notifications + user + profile).
+   190→- Created `src/app/api/clients/route.ts` — GET role-scoped: ADMIN/STAFF all, LAWYER only clients with a case assigned to them (empty list if no lawyer profile), CLIENT own profile as single-item list; ?search=&clientType=&hasPortal=; ClientDTO with caseCount/activeCaseCount/portalEmail. POST ADMIN+STAFF with same portal logic (role CLIENT) and clientType validated against CLIENT_TYPES (default INDIVIDUAL).
+   191→- Created `src/app/api/clients/[id]/route.ts` — GET access rules (ADMIN/STAFF any; LAWYER 403 unless client has a case assigned to them; CLIENT 403 unless own profile), returns ClientDTO + lite cases; `invoices` array (paidAmount computed from payments, fresh status PAID/PARTIAL/OVERDUE/UNPAID, payments included) ONLY for ADMIN. PATCH ADMIN+STAFF (client fields, clientType validated, name change syncs portal user name). DELETE ADMIN (409 "This client has linked cases/invoices and cannot be deleted." else transactional delete notifications + user + profile).
+   192→Stage Summary:
+   193→- All 9 contract routes implemented exactly: /api/auth/login, /api/auth/logout, /api/auth/me, /api/users (GET/POST), /api/users/[id] (PATCH/DELETE), /api/lawyers (GET/POST), /api/lawyers/[id] (GET/PATCH/DELETE), /api/clients (GET/POST), /api/clients/[id] (GET/PATCH/DELETE). Only @/lib helpers + db used; no new packages; no page routes; Next 16 async params used.
+   194→- Deviations: (1) emails are normalized to lowercase at creation/sync (keeps case-insensitive login via findUnique consistent); (2) sub-list cases in lawyer/client detail are role-scoped via caseScopeWhere (RBAC: LAWYER/CLIENT never see other clients' cases), contract did not specify this; (3) client detail invoices visible to ADMIN only (task instruction supersedes older worklog note saying admin/staff); (4) added optional ?hasPortal= filter on clients GET per worklog contract; (5) fresh invoice status computed at read time in client detail without persisting (persisting belongs to invoices routes).
+   195→- Verified via curl: login/logout/me flows, case-insensitive + inactive-email logins, 401/403/404/409/422 paths, self-protection rules, portal user creation + email/name sync, role scoping on lawyers/clients lists and details, invoices ADMIN-only, deletes cascade notifications/profile/user. Seed data intact after tests (6 users, 3 lawyers, 4 clients); all test records cleaned up.
+   196→
+   197→---
+   198→
+   199→Task ID: 2-b
+   200→Agent: backend-cases-ops (completed by coordinator after timeout)
+   201→Task: Implement dashboard, cases, hearings, documents/files, invoices, payments, notifications, reports APIs + notify helper.
+   202→Work Log:
+   203→- All 18 contract files were created by the agent before timeout: src/lib/notify.ts, dashboard/route.ts, cases/route.ts, cases/[id]/route.ts (+updates, +documents, +hearings), hearings/route.ts, hearings/[id]/route.ts, documents/[id]/route.ts, files/[documentId]/route.ts, invoices/route.ts, invoices/[id]/route.ts, payments/route.ts, notifications/route.ts (+unread-count, +read-all, +[id]), reports/route.ts.
+   204→- Coordinator fixed a Dhaka-day-range bug in src/lib/dates.ts (dhakaDayStart used "-06:00" offset producing wrong UTC window); corrected to "T00:00:00+06:00". Verified filter=today now returns only the true Dhaka day.
+   205→- Curl-verified: login, dashboard (ADMIN shape with stats/todaysHearings/upcomingHearings/recentActivities), cases list+detail, hearings filters, invoices (paidAmount/status recompute), notifications (reminder sweep creates "Hearing Tomorrow" dedupeKey entries), reports.
+   206→Stage Summary:
+   207→- Full backend operational on port 3000. All endpoints follow { data } / { error: { message } } envelope. Reminder sweep + notification dedupeKey working. NOTE for frontend: HearingDTO.hearingDate etc. are ISO strings; invoice status recomputed at read.
+   208→
+   209→---
+   210→
+   211→Task ID: 3
+   212→Agent: frontend-foundation
+   213→Task: Build the SPA shell — login screen, app shell (role-based sidebar nav + notification bell + view registry), role-specific dashboards, shared component kit, API client & types, and emerald design tokens.
+   214→Work Log:
+   215→- Read worklog.md (Frontend contracts + API CONTRACT), constants/utils/auth foundations, and inventoried available shadcn/ui components.
+   216→- Created `src/lib/types.ts` — SessionUser, Role, CaseListDTO, CaseDetailDTO, HearingDTO, DocumentDTO, UpdateDTO, InvoiceDTO, PaymentDTO, ClientDTO, LawyerDTO, UserDTO, NotificationDTO, RecentActivity, CaseUpdateItem, DashboardDTO (loose role+stats Record<string, number|null> + optional lists), ReportsDTO, ViewKey, ViewParams, ViewProps. Dates are ISO strings; optional fields where list variants may omit them.
+   217→- Created `src/lib/api-client.ts` — `apiGet<T>(path)`, `apiSend<T>(method, path, body?)`, `apiUpload<T>(path, form)`; all `credentials: "same-origin"`, JSON headers only when body present, unwrap `{ data }`, on non-ok parse `{ error: { message } }` and throw `Error(message || fallbackByStatus[400/401/403/404/409/422/500])`.
+   218→- Created `src/hooks/use-api-data.ts` — `useApiData<T>(path|null, refreshIntervalMs?)` → `{ data, loading, error, refetch }`; null path = idle; optional silent polling with proper cleanup; refetch bumps an internal tick.
+   219→- Created shared kit under `src/components/shared/`: stat-card (tone-tinted h-10 w-10 icon square, text-2xl bold value), status-badge (outline Badge + style-map classes, stone fallback with raw value), page-header (title + description + right-side children), empty-state (dashed border, centered), loading-block (3 stat skeletons + N row skeletons), confirm-dialog (AlertDialog wrapper, internal pending, async onConfirm, toast on error, destructive variant), section-card (CardHeader/CardTitle/CardAction/CardContent; also accepts optional className — used for the amber "Next Hearing" highlight).
+   220→- Created `src/components/auth/login-screen.tsx` — split screen: left emerald-950 gradient panel (hidden <lg) with radial-dot CSS pattern, Scale brand block, tagline, 4 feature rows (Gavel/FileText/Receipt/Bell); right card with email+password (show/hide eye), full-width emerald submit with spinner, sonner error toasts; demo accounts card (Crown/Gavel/Briefcase/User quick-fill+submit for the 4 seeded accounts); success → `toast.success("Welcome back, name")` → onLogin(user).
+   221→- Created `src/components/layout/app-shell.tsx` — fixed w-64 emerald-950 sidebar (brand block, grouped nav with amber-400 2px active indicator + bg-white/10 active item, user block with initials Avatar + ROLE_LABELS + LogOut) with mobile Sheet (side left, same content); sticky white/80 backdrop-blur header (mobile menu + mobile brand, page title from nav match, notification bell + avatar dropdown); nav config per role (ADMIN 10 items in Overview/Case Management/Office/System groups; STAFF, LAWYER, CLIENT per spec — CLIENT has Invoices/Pills billing tab params); notification bell polls unread-count every 60s, fetches take=8 on open, type icons (HEARING amber CalendarDays, BILLING Receipt, CASE FolderKanban, INFO Info), unread rows bg-emerald-50 with dot, click → PATCH read + navigate case-detail via `case-detail:<id>` link, footer "Mark all as read"; content column `flex h-screen flex-col md:ml-64` with `<main class="flex-1 overflow-y-auto">` + inner `min-h-full` wrapper so the footer (© 2026 AinSheba · আইনসেবা + tagline) sits at the bottom on short pages; static view registry maps ViewKey → component.
+   222→- Created `src/components/dashboard/dashboard-view.tsx` — fetches /api/dashboard, renders per data.role: ADMIN (7 stat cards incl. Pending Payments with ৳ + invoice count sub, Today's/Upcoming hearings + Recent Activities in lg:grid-cols-3), LAWYER (4 stat cards, hearings lists, My Cases rows with client name + status + priority badges), CLIENT (4 stat cards incl. Next Hearing as formatRelativeDay value, highlighted Next Hearing section card with amber border when Today/Tomorrow, My Cases card grid, Recent Updates feed with caseNumber chips, Outstanding Invoices list with due amounts), STAFF (5 stat cards, hearings lists, Recent Cases). All list rows navigate to case-detail; Dhaka "10:30 AM" time helper local to this file; LoadingBlock while loading, EmptyState on error.
+   223→- Created 10 stub views `src/components/views/{cases,case-detail,clients,lawyers,hearings,documents,billing,notifications,reports,settings}-view.tsx` — 'use client', default export, ViewProps-typed, PageHeader (billing honors params.tab; case-detail shows params.id) + EmptyState. These MUST be replaced in place by Tasks 4-6 keeping default export + ViewProps signature.
+   224→- Rewrote `src/app/page.tsx` — boot splash (emerald, pulsing Scale + spinner), /api/auth/me on mount → LoginScreen or AppShell; logout POSTs /api/auth/logout then clears user.
+   225→- Edited `src/app/layout.tsx` — new metadata (AinSheba title/description), replaced toaster with `@/components/ui/sonner` `<Toaster richColors position="top-right" />`; fonts kept.
+   226→- Edited `src/app/globals.css` — `:root { --primary: oklch(0.40 0.07 168); --ring: oklch(0.58 0.10 165); }`, `.dark { --primary: oklch(0.68 0.11 165); }` (deep emerald primary → Button/badge/ring are emerald; no blue/indigo anywhere).
+   227→- Verified: curl GET / → 200 (SSR splash OK); tsc --noEmit reports ZERO errors in all files I created (remaining repo errors are pre-existing in src/app/api/**, examples/, skills/ — untouched); smoke-tested login → unread-count (4) → notifications take=8 (Hearing Today with `case-detail:` link) → read-all all 200.
+   228→Stage Summary:
+   229→- Full SPA foundation live on `/`: boot splash → login (4 one-click demo roles) → role-aware app shell with dashboard. Sidebar/header/footer/bell match the design language exactly (emerald-950 sidebar, stone-50 content, amber accents, rose only for urgent/overdue, ৳ currency).
+   230→- Frontend calls only the documented API endpoints; no new routes, no window.location navigation, single-page view switching via navigate().
+   231→- Tasks 4-6 can now drop into src/components/views/* and use the shared kit (contracts below).
+   232→Frontend Component Contracts (for Tasks 4-6):
+   233→- `useApiData<T>(path: string | null, refreshIntervalMs?: number) => { data: T | null; loading: boolean; error: string | null; refetch: () => void }` from `@/hooks/use-api-data`. path null = idle. Poll silently.
+   234→- `apiGet<T>(path)`, `apiSend<T>(method: "POST"|"PATCH"|"DELETE", path, body?)`, `apiUpload<T>(path, form: FormData)` from `@/lib/api-client` — all unwrap `{ data }` and throw Error(server message) on failure.
+   235→- Types from `@/lib/types`: SessionUser, CaseListDTO, CaseDetailDTO, HearingDTO, DocumentDTO, UpdateDTO, InvoiceDTO, PaymentDTO, ClientDTO, LawyerDTO, UserDTO, NotificationDTO, DashboardDTO, RecentActivity, CaseUpdateItem, ReportsDTO, ViewKey ("dashboard"|"cases"|"case-detail"|"clients"|"lawyers"|"hearings"|"documents"|"billing"|"notifications"|"reports"|"settings"), ViewParams = Record<string,string>, ViewProps { user, navigate(view, params?), params }.
+   236→- Shared components from `@/components/shared/*`:
+   237→  - `<StatCard icon={LucideIcon} label value={ReactNode} sub? tone?={"emerald"|"amber"|"rose"|"teal"|"stone"|"gold"} className? />` (stat-card.tsx)
+   238→  - `<StatusBadge map={Record<string,{label,className}>} value={string|null|undefined} className? />` (status-badge.tsx; use caseStatusStyles/priorityStyles/hearingStatusStyles/invoiceStatusStyles/clientTypeStyles from @/lib/utils)
+   239→  - `<PageHeader title description? >{children /* right-side actions */}</PageHeader>` (page-header.tsx)
+   240→  - `<EmptyState icon title description? action? />` (empty-state.tsx)
+   241→  - `<LoadingBlock rows?={number} />` (loading-block.tsx)
+   242→  - `<ConfirmDialog open onOpenChange title description? confirmLabel? onConfirm={async ok} destructive? />` (confirm-dialog.tsx; toasts errors itself, closes on success)
+   243→  - `<SectionCard title description? action? className? >{children}</SectionCard>` (section-card.tsx)
+   244→- Views: each default-exports a component accepting `ViewProps` and is rendered by AppShell's registry; `case-detail` receives `params.id`. Replace the stub files IN PLACE at src/components/views/*.tsx keeping `export default function XView(props: ViewProps)`. DashboardView is at src/components/dashboard/dashboard-view.tsx (default + named export).
+
+[showing lines 25-244 of 246; use offset=245 with limit to continue reading]

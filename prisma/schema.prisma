@@ -1,0 +1,177 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String         @id @default(cuid())
+  name          String
+  email         String         @unique
+  phone         String?
+  password      String
+  role          String         @default("CLIENT") // ADMIN | LAWYER | CLIENT | STAFF
+  status        String         @default("ACTIVE") // ACTIVE | INACTIVE
+  lawyerProfile Lawyer?
+  clientProfile Client?
+  notifications Notification[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model Lawyer {
+  id             String   @id @default(cuid())
+  userId         String?  @unique
+  user           User?    @relation(fields: [userId], references: [id])
+  name           String
+  phone          String?
+  email          String?
+  barCouncilId   String?
+  specialization String?
+  chamberName    String?
+  experience     Int      @default(0)
+  status         String   @default("ACTIVE") // ACTIVE | INACTIVE
+  cases          Case[]   @relation("CaseLawyer")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Client {
+  id         String    @id @default(cuid())
+  userId     String?   @unique
+  user       User?     @relation(fields: [userId], references: [id])
+  name       String
+  phone      String?
+  email      String?
+  nid        String?
+  address    String?
+  clientType String    @default("INDIVIDUAL") // INDIVIDUAL | COMPANY | ORGANIZATION
+  cases      Case[]
+  invoices   Invoice[]
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Case {
+  id                String         @id @default(cuid())
+  caseNumber        String         @unique
+  title             String
+  type              String
+  clientId          String
+  client            Client         @relation(fields: [clientId], references: [id])
+  lawyerId          String?
+  lawyer            Lawyer?        @relation("CaseLawyer", fields: [lawyerId], references: [id])
+  court             String
+  district          String?
+  filingDate        DateTime?
+  status            String         @default("ACTIVE") // DRAFT | ACTIVE | PENDING | ON_HOLD | RESOLVED | CLOSED
+  priority          String         @default("MEDIUM") // LOW | MEDIUM | HIGH | URGENT
+  oppositeParty     String?
+  description       String?
+  resolutionSummary String?
+  outcome           String?
+  closedAt          DateTime?
+  documents         CaseDocument[]
+  hearings          Hearing[]
+  invoices          Invoice[]
+  updates           CaseUpdate[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+}
+
+model CaseDocument {
+  id               String   @id @default(cuid())
+  caseId           String
+  case             Case     @relation(fields: [caseId], references: [id])
+  documentName     String
+  documentType     String?
+  category         String? // Legal Documents | Client Documents | Court Orders | Evidence
+  fileName         String?
+  filePath         String?
+  fileSize         Int?
+  mimeType         String?
+  sharedWithClient Boolean  @default(false)
+  uploadedById     String?
+  uploadedByName   String?
+  createdAt        DateTime @default(now())
+}
+
+model Hearing {
+  id              String    @id @default(cuid())
+  caseId          String
+  case            Case      @relation(fields: [caseId], references: [id])
+  hearingDate     DateTime
+  court           String?
+  judge           String?
+  hearingType     String?
+  status          String    @default("UPCOMING") // UPCOMING | COMPLETED | ADJOURNED | POSTPONED | CANCELLED
+  notes           String?
+  summary         String?
+  courtOrder      String?
+  nextAction      String?
+  nextHearingDate DateTime?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Invoice {
+  id            String    @id @default(cuid())
+  invoiceNumber String    @unique
+  caseId        String?
+  case          Case?     @relation(fields: [caseId], references: [id])
+  clientId      String
+  client        Client    @relation(fields: [clientId], references: [id])
+  billingType   String?
+  description   String?
+  amount        Float
+  dueDate       DateTime?
+  status        String    @default("UNPAID") // UNPAID | PARTIAL | PAID | OVERDUE | CANCELLED
+  payments      Payment[]
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Payment {
+  id              String   @id @default(cuid())
+  invoiceId       String
+  invoice         Invoice  @relation(fields: [invoiceId], references: [id])
+  amount          Float
+  paymentMethod   String // Cash | Bank Transfer | bKash | Nagad | Rocket
+  paymentDate     DateTime @default(now())
+  referenceNumber String?
+  notes           String?
+  receivedById    String?
+  receivedByName  String?
+  createdAt       DateTime @default(now())
+}
+
+model CaseUpdate {
+  id             String   @id @default(cuid())
+  caseId         String
+  case           Case     @relation(fields: [caseId], references: [id])
+  update         String
+  createdById    String?
+  createdByName  String?
+  createdAt      DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  message   String?
+  type      String   @default("INFO") // INFO | HEARING | CASE | BILLING | SYSTEM
+  link      String? // e.g. "case-detail:<caseId>"
+  caseId    String?
+  dedupeKey String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}

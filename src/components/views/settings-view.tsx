@@ -1,0 +1,596 @@
+"use client"
+
+import { useEffect, useMemo, useState } from "react"
+import {
+  AlertTriangle,
+  Check,
+  Lock,
+  Mail,
+  MoreHorizontal,
+  Pencil,
+  Phone,
+  Scale,
+  Search,
+  Trash2,
+  UserPlus,
+  Users,
+} from "lucide-react"
+import { toast } from "sonner"
+
+import { ConfirmDialog } from "@/components/shared/confirm-dialog"
+import { EmptyState } from "@/components/shared/empty-state"
+import { LoadingBlock } from "@/components/shared/loading-block"
+import { PageHeader } from "@/components/shared/page-header"
+import { SectionCard } from "@/components/shared/section-card"
+import { useApiData } from "@/hooks/use-api-data"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { apiSend } from "@/lib/api-client"
+import { ROLES, ROLE_LABELS } from "@/lib/constants"
+import type { UserDTO, ViewProps } from "@/lib/types"
+import { cn, formatDate, initials } from "@/lib/utils"
+
+const ALL = "ALL"
+
+const ROLE_BADGE_CLASSES: Record<string, string> = {
+  ADMIN: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  LAWYER: "border-stone-200 bg-stone-50 text-stone-600",
+  CLIENT: "border-stone-200 bg-stone-50 text-stone-600",
+  STAFF: "border-stone-200 bg-stone-50 text-stone-600",
+}
+
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : "Something went wrong. Please try again."
+}
+
+function RoleBadge({ role }: { role: string }) {
+  return (
+    <Badge variant="outline" className={cn("border", ROLE_BADGE_CLASSES[role] ?? ROLE_BADGE_CLASSES.STAFF)}>
+      {ROLE_LABELS[role] ?? role}
+    </Badge>
+  )
+}
+
+function StatusDot({ status }: { status: string }) {
+  const active = status === "ACTIVE"
+  return (
+    <span className="inline-flex items-center gap-1.5 text-sm">
+      <span
+        className={cn("h-2 w-2 rounded-full", active ? "bg-emerald-500" : "bg-stone-400")}
+        aria-hidden="true"
+      />
+      <span className={active ? "text-emerald-700" : "text-stone-500"}>{active ? "Active" : "Inactive"}</span>
+    </span>
+  )
+}
+
+/* ------------------------------ User form dialog ------------------------------ */
+
+function UserFormDialog({
+  open,
+  onOpenChange,
+  editing,
+  onSaved,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  editing: UserDTO | null
+  onSaved: () => void
+}) {
+  const isEdit = !!editing
+  const [name, setName] = useState("")
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [phone, setPhone] = useState("")
+  const [role, setRole] = useState<string>("CLIENT")
+  const [status, setStatus] = useState("ACTIVE")
+  const [pending, setPending] = useState(false)
+
+  useEffect(() => {
+    if (open) {
+      setName(editing?.name ?? "")
+      setEmail(editing?.email ?? "")
+      setPassword("")
+      setPhone(editing?.phone ?? "")
+      setRole(editing?.role ?? "CLIENT")
+      setStatus(editing?.status ?? "ACTIVE")
+    }
+  }, [open, editing])
+
+  const submit = async () => {
+    if (!name.trim()) {
+      toast.error("Please enter a name.")
+      return
+    }
+    if (!isEdit) {
+      if (!email.trim() || !email.includes("@")) {
+        toast.error("Please enter a valid email address.")
+        return
+      }
+      if (password.length < 6) {
+        toast.error("Password must be at least 6 characters.")
+        return
+      }
+    }
+    if (isEdit && password && password.length < 6) {
+      toast.error("New password must be at least 6 characters.")
+      return
+    }
+    setPending(true)
+    try {
+      if (isEdit && editing) {
+        await apiSend("PATCH", `/api/users/${editing.id}`, {
+          name: name.trim(),
+          phone: phone.trim() || undefined,
+          role,
+          status,
+          ...(password ? { password } : {}),
+        })
+        toast.success("User updated")
+      } else {
+        await apiSend("POST", "/api/users", {
+          name: name.trim(),
+          email: email.trim(),
+          password,
+          phone: phone.trim() || undefined,
+          role,
+        })
+        toast.success("User created")
+      }
+      onSaved()
+      onOpenChange(false)
+    } catch (e) {
+      toast.error(errorMessage(e))
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? "Edit User" : "Add User"}</DialogTitle>
+          <DialogDescription>
+            {isEdit ? "Update this user's profile, role or portal access." : "Create a new portal account."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="user-name">Name *</Label>
+              <Input id="user-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="user-email">Email *</Label>
+              <Input
+                id="user-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="user@example.com"
+                disabled={isEdit}
+              />
+              {isEdit ? <p className="text-xs text-muted-foreground">Email cannot be changed.</p> : null}
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="user-password">{isEdit ? "New Password" : "Password *"}</Label>
+              <Input
+                id="user-password"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={isEdit ? "Leave blank to keep current" : "At least 6 characters"}
+              />
+              <p className="text-xs text-muted-foreground">
+                {isEdit ? "Leave blank to keep the current password." : "At least 6 characters."}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="user-phone">Phone</Label>
+              <Input
+                id="user-phone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+8801XXXXXXXXX"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Role *</Label>
+              <Select value={role} onValueChange={setRole}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLES.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {ROLE_LABELS[r]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {isEdit ? (
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={status} onValueChange={setStatus}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ACTIVE">Active</SelectItem>
+                    <SelectItem value="INACTIVE">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+            Cancel
+          </Button>
+          <Button onClick={() => void submit()} disabled={pending}>
+            {pending ? "Saving…" : isEdit ? "Save Changes" : "Create User"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/* ------------------------------ User management ------------------------------ */
+
+function UsersPanel() {
+  const { data, loading, error, refetch } = useApiData<UserDTO[]>("/api/users")
+  const [search, setSearch] = useState("")
+  const [roleFilter, setRoleFilter] = useState(ALL)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState<UserDTO | null>(null)
+  const [deleting, setDeleting] = useState<UserDTO | null>(null)
+
+  const list = useMemo(() => data ?? [], [data])
+  const filtered = useMemo(() => {
+    let rows = list
+    if (roleFilter !== ALL) rows = rows.filter((u) => u.role === roleFilter)
+    const q = search.trim().toLowerCase()
+    if (q) {
+      rows = rows.filter(
+        (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (u.phone ?? "").includes(q)
+      )
+    }
+    return rows
+  }, [list, roleFilter, search])
+
+  const deleteUser = async () => {
+    if (!deleting) return
+    await apiSend("DELETE", `/api/users/${deleting.id}`)
+    toast.success("User deleted")
+    refetch()
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name, email or phone…"
+            className="pl-8"
+          />
+        </div>
+        <Select value={roleFilter} onValueChange={setRoleFilter}>
+          <SelectTrigger className="w-full sm:w-52">
+            <SelectValue placeholder="All roles" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>All roles</SelectItem>
+            {ROLES.map((r) => (
+              <SelectItem key={r} value={r}>
+                {ROLE_LABELS[r]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          onClick={() => {
+            setEditing(null)
+            setFormOpen(true)
+          }}
+        >
+          <UserPlus className="h-4 w-4" /> Add User
+        </Button>
+      </div>
+
+      {loading && !data ? (
+        <LoadingBlock rows={5} />
+      ) : error && !data ? (
+        <EmptyState
+          icon={AlertTriangle}
+          title="Could not load users"
+          description={error}
+          action={
+            <Button variant="outline" size="sm" onClick={refetch}>
+              Try again
+            </Button>
+          }
+        />
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-stone-200/80 bg-white shadow-sm">
+          {filtered.length === 0 ? (
+            <div className="p-6">
+              <EmptyState
+                icon={Users}
+                title={list.length === 0 ? "No users yet" : "No users match your filters"}
+                description={
+                  list.length === 0
+                    ? "Portal accounts for admins, lawyers, staff and clients live here."
+                    : "Try a different search term or role filter."
+                }
+              />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>User</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Linked Profile</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead className="w-12" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((u) => (
+                  <TableRow key={u.id}>
+                    <TableCell>
+                      <div className="flex items-center gap-2.5">
+                        <Avatar className="h-8 w-8">
+                          <AvatarFallback className="bg-emerald-100 text-xs font-semibold text-emerald-700">
+                            {initials(u.name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium">{u.name}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                        <Mail className="h-3.5 w-3.5" />
+                        {u.email}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {u.phone ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Phone className="h-3.5 w-3.5" />
+                          {u.phone}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <RoleBadge role={u.role} />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{u.linkedName ?? "—"}</TableCell>
+                    <TableCell>
+                      <StatusDot status={u.status} />
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(u.createdAt)}</TableCell>
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="User actions">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-36">
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              setEditing(u)
+                              setFormOpen(true)
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" /> Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-rose-600 focus:text-rose-600"
+                            onSelect={() => setDeleting(u)}
+                          >
+                            <Trash2 className="h-4 w-4" /> Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      )}
+
+      <UserFormDialog open={formOpen} onOpenChange={setFormOpen} editing={editing} onSaved={refetch} />
+
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(o) => {
+          if (!o) setDeleting(null)
+        }}
+        title="Delete this user?"
+        description={
+          deleting
+            ? `${deleting.name} (${deleting.email}) will permanently lose portal access. Users with linked case records cannot be deleted.`
+            : undefined
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={deleteUser}
+      />
+    </div>
+  )
+}
+
+/* ------------------------------ System info tab ------------------------------ */
+
+const TECH_STACK = [
+  "Next.js 16",
+  "TypeScript",
+  "Tailwind CSS",
+  "shadcn/ui",
+  "Prisma + SQLite",
+  "JWT session auth",
+  "Local file storage",
+]
+
+const BD_MODULES = [
+  "Bangladesh case types & courts",
+  "Vakalatnama & legal documents",
+  "Hearing reminders (in-app)",
+  "bKash/Nagad/Rocket payments",
+  "৳ BDT billing",
+  "Role-based access: Admin/Lawyer/Staff/Client",
+]
+
+function SystemInfoTab({ user }: { user: ViewProps["user"] }) {
+  return (
+    <div className="grid gap-6 lg:grid-cols-2">
+      <SectionCard title="About">
+        <div className="flex items-start gap-4">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+            <Scale className="h-5 w-5" />
+          </span>
+          <div className="space-y-1">
+            <p className="font-semibold tracking-tight">
+              AinSheba <span className="text-muted-foreground">আইনসেবা</span> — MVP v1.0
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Legal Case Management for Bangladesh. Manage cases, hearings, documents, billing and client
+              communication in one place — built for chambers in Dhaka and beyond.
+            </p>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Your Session" description="Currently signed-in portal account">
+        <dl className="space-y-3 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Name</dt>
+            <dd className="font-medium">{user.name}</dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Email</dt>
+            <dd className="inline-flex items-center gap-1.5 font-medium">
+              <Mail className="h-3.5 w-3.5" /> {user.email}
+            </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Role</dt>
+            <dd>
+              <RoleBadge role={user.role} />
+            </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Phone</dt>
+            <dd className="inline-flex items-center gap-1.5 font-medium">
+              <Phone className="h-3.5 w-3.5" /> {user.phone ?? "—"}
+            </dd>
+          </div>
+        </dl>
+      </SectionCard>
+
+      <SectionCard title="Technology" description="Built on a modern, type-safe stack">
+        <div className="flex flex-wrap gap-2">
+          {TECH_STACK.map((t) => (
+            <Badge key={t} variant="outline" className="border-stone-200 bg-stone-50 text-stone-600">
+              {t}
+            </Badge>
+          ))}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Bangladesh Modules" description="Localised for chambers in Bangladesh">
+        <ul className="space-y-2.5">
+          {BD_MODULES.map((m) => (
+            <li key={m} className="flex items-start gap-2.5 text-sm">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                <Check className="h-3 w-3" />
+              </span>
+              {m}
+            </li>
+          ))}
+        </ul>
+      </SectionCard>
+    </div>
+  )
+}
+
+/* --------------------------------- View --------------------------------- */
+
+export default function SettingsView({ user }: ViewProps) {
+  const isAdmin = user.role === "ADMIN"
+
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Settings" description="User management & chamber information" />
+
+      <Tabs defaultValue="users">
+        <TabsList>
+          <TabsTrigger value="users">User Management</TabsTrigger>
+          <TabsTrigger value="system">System Info</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="users" className="mt-4">
+          {isAdmin ? (
+            <UsersPanel />
+          ) : (
+            <EmptyState
+              icon={Lock}
+              title="Only administrators can manage users"
+              description="User accounts, roles and portal access are managed by chamber administrators."
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="system" className="mt-4">
+          <SystemInfoTab user={user} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  )
+}
