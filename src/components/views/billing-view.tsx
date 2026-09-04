@@ -139,6 +139,10 @@ function RecordPaymentDialog({
       toast.error("Enter an amount greater than 0.")
       return
     }
+    if (amt > remaining + 0.005) {
+      toast.error(`Payment exceeds the remaining due of ${formatCurrency(remaining)}.`)
+      return
+    }
     setPending(true)
     try {
       await apiSend("POST", "/api/payments", {
@@ -389,10 +393,13 @@ function NewInvoiceDialog({
   open,
   onOpenChange,
   onSaved,
+  requireCase = false,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSaved: () => void
+  /** Lawyers must attach the invoice to one of their own cases (server-enforced too). */
+  requireCase?: boolean
 }) {
   const clientsQ = useApiData<ClientDTO[]>(open ? "/api/clients" : null)
   const casesQ = useApiData<CaseListDTO[]>(open ? "/api/cases" : null)
@@ -427,6 +434,10 @@ function NewInvoiceDialog({
   const submit = async () => {
     if (!clientId) {
       toast.error("Please select a client.")
+      return
+    }
+    if (requireCase && (!caseId || caseId === NO_CASE)) {
+      toast.error("Please select a case for this invoice.")
       return
     }
     const amt = Number(amount)
@@ -564,6 +575,7 @@ function InvoicesTab({
   invoices,
   loading,
   error,
+  canManage,
   isAdmin,
   isClient,
   navigate,
@@ -576,6 +588,7 @@ function InvoicesTab({
   invoices: InvoiceDTO[] | null
   loading: boolean
   error: string | null
+  canManage: boolean
   isAdmin: boolean
   isClient: boolean
   navigate: NavigateFn
@@ -706,7 +719,7 @@ function InvoicesTab({
                 <TableHead className="text-right">Paid</TableHead>
                 <TableHead>Due</TableHead>
                 <TableHead>Status</TableHead>
-                {isAdmin ? <TableHead className="w-12" /> : null}
+                {canManage ? <TableHead className="w-12" /> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -736,7 +749,7 @@ function InvoicesTab({
                     <TableCell>
                       <StatusBadge map={invoiceStatusStyles} value={inv.status} />
                     </TableCell>
-                    {isAdmin ? (
+                    {canManage ? (
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -751,13 +764,13 @@ function InvoicesTab({
                             <DropdownMenuItem onSelect={() => onViewDetails(inv)}>
                               <Eye className="h-4 w-4" /> View Details
                             </DropdownMenuItem>
-                            {canCancel || canDelete ? <DropdownMenuSeparator /> : null}
+                            {canCancel || (canDelete && isAdmin) ? <DropdownMenuSeparator /> : null}
                             {canCancel ? (
                               <DropdownMenuItem onSelect={() => onCancel(inv)}>
                                 <Ban className="h-4 w-4" /> Cancel Invoice
                               </DropdownMenuItem>
                             ) : null}
-                            {canDelete ? (
+                            {canDelete && isAdmin ? (
                               <DropdownMenuItem
                                 className="text-rose-600 focus:text-rose-600"
                                 onSelect={() => onDelete(inv)}
@@ -932,12 +945,14 @@ function PaymentsTab({
 export default function BillingView({ user, navigate, params }: ViewProps) {
   const isStaff = user.role === "STAFF"
   const isAdmin = user.role === "ADMIN"
+  const isLawyer = user.role === "LAWYER"
   const isClient = user.role === "CLIENT"
+  // ADMIN + LAWYER manage billing (per PRD); STAFF/CLIENT are read-only.
+  const canManage = isAdmin || isLawyer
 
-  // Derived tab: params.tab drives it unless the user overrides by clicking.
-  const [tabOverride, setTabOverride] = useState<"invoices" | "payments" | null>(null)
-  const tab: "invoices" | "payments" =
-    tabOverride ?? (params.tab === "payments" ? "payments" : "invoices")
+  // Tab is fully driven by params so the sidebar Invoices/Payments entries and
+  // the in-view Tabs stay in sync (no stale local override).
+  const tab: "invoices" | "payments" = params.tab === "payments" ? "payments" : "invoices"
   const [payFor, setPayFor] = useState<InvoiceDTO | null>(null)
   const [detailsFor, setDetailsFor] = useState<InvoiceDTO | null>(null)
   const [cancelFor, setCancelFor] = useState<InvoiceDTO | null>(null)
@@ -969,8 +984,7 @@ export default function BillingView({ user, navigate, params }: ViewProps) {
 
   const changeTab = (value: string) => {
     const next = value === "payments" ? "payments" : "invoices"
-    setTabOverride(next)
-    navigate("billing", { tab: next }) // keeps sidebar highlight in sync
+    navigate("billing", { tab: next }) // single source of truth — keeps sidebar in sync
   }
 
   const cancelInvoice = async () => {
@@ -993,7 +1007,7 @@ export default function BillingView({ user, navigate, params }: ViewProps) {
         title="Billing & Invoices"
         description="Invoices, payments & collections — bKash / Nagad / Rocket supported"
       >
-        {isAdmin ? (
+        {canManage ? (
           <Button onClick={() => setNewOpen(true)}>
             <Plus className="h-4 w-4" /> New Invoice
           </Button>
@@ -1010,6 +1024,7 @@ export default function BillingView({ user, navigate, params }: ViewProps) {
             invoices={invoicesQ.data}
             loading={invoicesQ.loading}
             error={invoicesQ.error}
+            canManage={canManage}
             isAdmin={isAdmin}
             isClient={isClient}
             navigate={navigate}
@@ -1047,7 +1062,12 @@ export default function BillingView({ user, navigate, params }: ViewProps) {
         }}
         navigate={navigate}
       />
-      <NewInvoiceDialog open={newOpen} onOpenChange={setNewOpen} onSaved={refetchBoth} />
+      <NewInvoiceDialog
+        open={newOpen}
+        onOpenChange={setNewOpen}
+        onSaved={refetchBoth}
+        requireCase={isLawyer}
+      />
 
       <ConfirmDialog
         open={!!cancelFor}

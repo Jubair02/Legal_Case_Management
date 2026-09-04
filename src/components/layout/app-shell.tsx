@@ -108,6 +108,7 @@ const NAV_GROUPS: Record<string, NavGroup[]> = {
       ],
     },
     { label: "Office", items: [{ label: "Notifications", icon: Bell, view: "notifications" }] },
+    { label: "System", items: [{ label: "Settings", icon: Settings, view: "settings" }] },
   ],
   LAWYER: [
     { label: "Overview", items: [DASHBOARD_ITEM] },
@@ -123,9 +124,11 @@ const NAV_GROUPS: Record<string, NavGroup[]> = {
       label: "Office",
       items: [
         { label: "My Clients", icon: Users, view: "clients" },
+        { label: "Billing", icon: Receipt, view: "billing", params: { tab: "invoices" } },
         { label: "Notifications", icon: Bell, view: "notifications" },
       ],
     },
+    { label: "System", items: [{ label: "Settings", icon: Settings, view: "settings" }] },
   ],
   CLIENT: [
     { label: "Overview", items: [DASHBOARD_ITEM] },
@@ -133,7 +136,6 @@ const NAV_GROUPS: Record<string, NavGroup[]> = {
       label: "Case Management",
       items: [
         { label: "My Cases", icon: FolderKanban, view: "cases" },
-        { label: "Hearings", icon: CalendarDays, view: "hearings" },
         { label: "My Documents", icon: FileText, view: "documents" },
       ],
     },
@@ -145,6 +147,7 @@ const NAV_GROUPS: Record<string, NavGroup[]> = {
         { label: "Notifications", icon: Bell, view: "notifications" },
       ],
     },
+    { label: "System", items: [{ label: "Settings", icon: Settings, view: "settings" }] },
   ],
 }
 
@@ -228,11 +231,21 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
     try {
       const res = await apiGet<NotificationDTO[]>("/api/notifications?take=8")
       setItems(res ?? [])
-      setCount((res ?? []).filter((n) => !n.isRead).length)
+      // Badge count stays driven by the dedicated unread-count endpoint —
+      // the dropdown list only shows the latest 8 items.
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not load notifications.")
     } finally {
       setLoading(false)
+    }
+  }, [])
+
+  const refreshCount = useCallback(async () => {
+    try {
+      const res = await apiGet<{ count: number }>("/api/notifications/unread-count")
+      if (typeof res?.count === "number") setCount(res.count)
+    } catch {
+      /* silent */
     }
   }, [])
 
@@ -242,7 +255,7 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
         try {
           await apiSend<NotificationDTO>("PATCH", `/api/notifications/${n.id}`, { isRead: true })
           setItems((prev) => prev.map((p) => (p.id === n.id ? { ...p, isRead: true } : p)))
-          setCount((c) => Math.max(0, c - 1))
+          void refreshCount()
         } catch {
           /* ignore */
         }
@@ -255,7 +268,7 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
         }
       }
     },
-    [navigate]
+    [navigate, refreshCount]
   )
 
   const markAllRead = useCallback(async () => {
@@ -268,7 +281,6 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
       toast.error(e instanceof Error ? e.message : "Could not mark notifications as read.")
     }
   }, [])
-
   return (
     <DropdownMenu
       open={open}

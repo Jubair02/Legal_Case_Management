@@ -45,9 +45,11 @@ function MiniStat({
 }
 
 export default function ReportsView({ user }: ViewProps) {
-  const { data, loading, error, refetch } = useApiData<ReportsDTO>("/api/reports")
+  const isAdmin = user.role === "ADMIN"
+  // Only fetch when actually allowed — avoids a guaranteed 403 for other roles.
+  const { data, loading, error, refetch } = useApiData<ReportsDTO>(isAdmin ? "/api/reports" : null)
 
-  if (user.role !== "ADMIN") {
+  if (!isAdmin) {
     return (
       <div className="space-y-6">
         <PageHeader title="Reports" description="Case & financial reports" />

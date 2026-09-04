@@ -101,12 +101,18 @@ export async function GET(request: Request) {
     const where: Record<string, unknown> = {}
     if (user.role === "LAWYER") {
       where.case = { lawyer: { userId: user.id } }
+      // Lawyers may additionally narrow to one of their own clients.
+      if (clientId) where.clientId = clientId
     } else if (user.role === "CLIENT") {
       if (!user.clientProfile) return Response.json({ data: [] })
+      // Clients are always locked to their own profile — never honour clientId param.
       where.clientId = user.clientProfile.id
+      if (caseId) where.caseId = caseId
+    } else {
+      // ADMIN: optional filters.
+      if (clientId) where.clientId = clientId
+      if (caseId) where.caseId = caseId
     }
-    if (clientId) where.clientId = clientId
-    if (caseId) where.caseId = caseId
 
     const todayRange = dhakaDayRange(dhakaDayOffset(0))
     const rows = (await db.invoice.findMany({
@@ -143,7 +149,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   return handle(async () => {
-    const user = await requireAuth(["ADMIN"])
+    const user = await requireAuth(["ADMIN", "LAWYER"])
     const body = await readJson<Record<string, unknown>>(request)
 
     const clientId = requireString(body.clientId, "clientId")
@@ -155,8 +161,22 @@ export async function POST(request: Request) {
 
     const caseId = optionalString(body.caseId)
     if (caseId) {
-      const kase = await db.case.findUnique({ where: { id: caseId }, select: { id: true } })
+      const kase = await db.case.findUnique({
+        where: { id: caseId },
+        select: { id: true, clientId: true, lawyer: { select: { userId: true } } },
+      })
       if (!kase) throw new ApiError("Case not found.", 422)
+      // The invoice's client must match the case's client.
+      if (kase.clientId !== clientId) {
+        throw new ApiError("The selected case does not belong to the selected client.", 422)
+      }
+      // Lawyers may only invoice clients/cases assigned to them.
+      if (user.role === "LAWYER" && kase.lawyer?.userId !== user.id) {
+        throw new ApiError("You can only create invoices for your own cases.", 403)
+      }
+    } else if (user.role === "LAWYER") {
+      // Without a case there is no lawyer scoping — require one from lawyers.
+      throw new ApiError("Please select a case for the invoice.", 422)
     }
 
     const billingType = optionalString(body.billingType)

@@ -38,6 +38,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!ALLOWED_MIME_PREFIXES.some((prefix) => mimeType.startsWith(prefix))) {
       throw new ApiError("Unsupported file type.", 422)
     }
+    // Active content is never accepted — SVG/HTML can execute script when opened.
+    if (
+      mimeType === "image/svg+xml" ||
+      mimeType.startsWith("image/svg") ||
+      mimeType === "text/html" ||
+      mimeType === "application/xhtml+xml"
+    ) {
+      throw new ApiError("SVG/HTML files are not allowed — export to PDF or PNG instead.", 422)
+    }
 
     const originalName = file.name || "upload"
     const safeName = sanitizeFileName(originalName)

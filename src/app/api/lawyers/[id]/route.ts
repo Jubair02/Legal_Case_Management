@@ -20,10 +20,10 @@ async function nextHearingMap(caseIds: string[]): Promise<Map<string, string>> {
   return map
 }
 
-/** GET /api/lawyers/[id] — any authenticated user. Cases scoped by role. */
+/** GET /api/lawyers/[id] — internal roles only. Cases scoped by role. */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   return handle(async () => {
-    const user = await requireAuth()
+    const user = await requireAuth(["ADMIN", "STAFF", "LAWYER"])
     const { id } = await params
 
     const lawyer = await db.lawyer.findUnique({
@@ -102,7 +102,21 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const nameChanged = typeof data.name === "string" && data.name !== lawyer.name
     const emailChanged =
       body.email !== undefined && newEmail !== (lawyer.email ? lawyer.email.toLowerCase() : null)
-    if (emailChanged) data.email = newEmail
+    if (emailChanged) {
+      // Portal accounts have a non-nullable email — forbid clearing it there and
+      // fall back to keeping the account email in sync.
+      if (!newEmail && lawyer.userId) {
+        throw new ApiError(
+          "This lawyer has a portal account — the email cannot be removed. Set a different email instead.",
+          422
+        )
+      }
+      data.email = newEmail
+    }
+
+    // Keep the portal account status in step with the lawyer profile.
+    const statusChanged =
+      body.status !== undefined && typeof data.status === "string" && data.status !== lawyer.status
 
     // Portal user email uniqueness check when syncing an email change.
     if (emailChanged && lawyer.userId && newEmail) {
@@ -112,12 +126,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     await db.$transaction(async (tx) => {
       await tx.lawyer.update({ where: { id }, data })
-      if (lawyer.userId && (nameChanged || emailChanged)) {
+      if (lawyer.userId && (nameChanged || emailChanged || statusChanged)) {
         await tx.user.update({
           where: { id: lawyer.userId },
           data: {
             ...(nameChanged ? { name: data.name as string } : {}),
-            ...(emailChanged ? { email: newEmail as string } : {}),
+            ...(emailChanged && newEmail ? { email: newEmail } : {}),
+            ...(statusChanged ? { status: data.status as string } : {}),
           },
         })
       }

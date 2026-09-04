@@ -2,6 +2,18 @@
 // All endpoints respond `{ data: ... }` on success and
 // `{ error: { message, code } }` on failure.
 
+/**
+ * Fired whenever any API call returns 401 so the app shell can reset to the
+ * login screen instead of leaving the user stranded on a dead session.
+ */
+export const SESSION_EXPIRED_EVENT = "lcm:session-expired"
+
+function notifySessionExpired() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT))
+  }
+}
+
 function fallbackByStatus(status: number): string {
   switch (status) {
     case 400:
@@ -16,6 +28,8 @@ function fallbackByStatus(status: number): string {
       return "This conflicts with an existing record."
     case 422:
       return "The submitted data is invalid."
+    case 429:
+      return "Too many attempts. Please wait a moment and try again."
     case 500:
       return "Something went wrong on the server. Please try again."
     default:
@@ -31,6 +45,7 @@ async function throwApiError(res: Response): Promise<never> {
   } catch {
     // non-JSON body — fall through to status-based message
   }
+  if (res.status === 401) notifySessionExpired()
   throw new Error(message || fallbackByStatus(res.status))
 }
 

@@ -2,7 +2,7 @@ import { unlinkSync } from "fs"
 import { db } from "@/lib/db"
 import { ApiError, handle, optionalString, parseDateOnly, readJson, requireAuth, requireString } from "@/lib/api-helpers"
 import { assertCaseReadAccess, assertCaseWriteAccess } from "@/lib/permissions"
-import { CASE_PRIORITIES, CASE_STATUSES } from "@/lib/constants"
+import { CASE_PRIORITIES, CASE_STATUSES, CASE_TYPES } from "@/lib/constants"
 import { dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
 import { clientUserId, lawyerUserId, notifyUsers } from "@/lib/notify"
 
@@ -80,23 +80,30 @@ function documentDTO(d: DocumentRow) {
   }
 }
 
-function hearingDTO(h: HearingRow, caseNumber: string, caseTitle: string) {
-  return {
+function hearingDTO(h: HearingRow, caseNumber: string, caseTitle: string, forClient = false) {
+  const base = {
     id: h.id,
     caseId: h.caseId,
     caseNumber,
     caseTitle,
     hearingDate: h.hearingDate,
     court: h.court,
-    judge: h.judge,
     hearingType: h.hearingType,
     status: h.status,
+    nextHearingDate: h.nextHearingDate,
+    createdAt: h.createdAt,
+  }
+  if (forClient) {
+    // Internal work-product (judge, notes, orders, strategy) is not exposed to clients.
+    return base
+  }
+  return {
+    ...base,
+    judge: h.judge,
     notes: h.notes,
     summary: h.summary,
     courtOrder: h.courtOrder,
     nextAction: h.nextAction,
-    nextHearingDate: h.nextHearingDate,
-    createdAt: h.createdAt,
   }
 }
 
@@ -150,7 +157,7 @@ function invoiceDTO(inv: InvoiceRow, status: string) {
   }
 }
 
-/** Full CaseDetailDTO (documents scoped for CLIENT; invoices hidden from STAFF). */
+/** Full CaseDetailDTO (documents & hearing internals scoped for CLIENT; invoices hidden from STAFF). */
 async function buildCaseDetail(role: string, caseId: string) {
   const kase = await db.case.findUnique({
     where: { id: caseId },
@@ -213,7 +220,9 @@ async function buildCaseDetail(role: string, caseId: string) {
     outcome: kase.outcome,
     closedAt: kase.closedAt,
     documents: documents.map((d) => documentDTO(d as DocumentRow)),
-    hearings: hearings.map((h) => hearingDTO(h as HearingRow, kase.caseNumber, kase.title)),
+    hearings: hearings.map((h) =>
+      hearingDTO(h as HearingRow, kase.caseNumber, kase.title, role === "CLIENT")
+    ),
     updates: updates.map((u) => ({
       id: u.id,
       caseId: u.caseId,
@@ -256,7 +265,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     const data: Record<string, unknown> = {}
     if (body.title !== undefined) data.title = requireString(body.title, "title")
-    if (body.type !== undefined) data.type = requireString(body.type, "type")
+    if (body.type !== undefined) {
+      const type = requireString(body.type, "type")
+      if (!CASE_TYPES.includes(type as never)) throw new ApiError("Invalid case type.", 422)
+      data.type = type
+    }
     if (body.court !== undefined) data.court = requireString(body.court, "court")
     if (body.district !== undefined) data.district = optionalString(body.district)
     if (body.filingDate !== undefined) data.filingDate = parseDateOnly(body.filingDate)
@@ -300,11 +313,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     // Status transition rules
     if (newStatus && newStatus !== kase.status) {
       if (newStatus === "RESOLVED" || newStatus === "CLOSED") {
-        const summary = optionalString(body.resolutionSummary) ?? kase.resolutionSummary
-        if (!summary || summary.trim().length === 0) {
+        // Effective summary = explicitly-sent value, else the stored one.
+        const effectiveSummary =
+          data.resolutionSummary !== undefined ? (data.resolutionSummary as string | null) : kase.resolutionSummary
+        if (!effectiveSummary || effectiveSummary.trim().length === 0) {
           throw new ApiError("Resolution summary is required to close a case.", 422)
         }
-        if (data.resolutionSummary === undefined) data.resolutionSummary = summary
+        data.resolutionSummary = effectiveSummary
         data.closedAt = new Date()
       } else if (kase.status === "RESOLVED" || kase.status === "CLOSED") {
         data.closedAt = null
@@ -355,6 +370,16 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     if (invoiceCount > 0) throw new ApiError("Delete invoices first.", 409)
 
     const docs = await db.caseDocument.findMany({ where: { caseId: id }, select: { filePath: true } })
+
+    // Delete all DB rows atomically; unlink files afterwards (best-effort).
+    await db.$transaction(async (tx) => {
+      await tx.caseDocument.deleteMany({ where: { caseId: id } })
+      await tx.hearing.deleteMany({ where: { caseId: id } })
+      await tx.caseUpdate.deleteMany({ where: { caseId: id } })
+      await tx.notification.deleteMany({ where: { caseId: id } })
+      await tx.case.delete({ where: { id } })
+    })
+
     for (const d of docs) {
       if (!d.filePath) continue
       try {
@@ -363,12 +388,6 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
         // best-effort file removal
       }
     }
-
-    await db.caseDocument.deleteMany({ where: { caseId: id } })
-    await db.hearing.deleteMany({ where: { caseId: id } })
-    await db.caseUpdate.deleteMany({ where: { caseId: id } })
-    await db.notification.deleteMany({ where: { caseId: id } })
-    await db.case.delete({ where: { id } })
 
     return Response.json({ data: { ok: true } })
   })

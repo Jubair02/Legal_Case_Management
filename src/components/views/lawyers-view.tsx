@@ -566,8 +566,17 @@ export default function LawyersView({ user, navigate }: ViewProps) {
           {filtered.map((l) => (
             <Card
               key={l.id}
+              role="button"
+              tabIndex={0}
+              aria-label={`Open lawyer ${l.name}`}
               onClick={() => setDetailId(l.id)}
-              className="cursor-pointer gap-3 border-stone-200/80 py-4 transition-colors hover:border-emerald-300 hover:shadow-sm"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  setDetailId(l.id)
+                }
+              }}
+              className="cursor-pointer gap-3 border-stone-200/80 py-4 transition-colors hover:border-emerald-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
             >
               <CardHeader className="px-4">
                 <div className="flex items-start gap-3">

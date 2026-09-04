@@ -202,7 +202,8 @@ export interface CaseUpdateItem {
 /** Loose, role-aware dashboard payload from GET /api/dashboard. */
 export interface DashboardDTO {
   role: string
-  stats: Record<string, number | null>
+  // Most values are numbers; the CLIENT payload returns nextHearingDate as an ISO string.
+  stats: Record<string, number | string | null>
   todaysHearings?: HearingDTO[]
   upcomingHearings?: HearingDTO[]
   recentActivities?: RecentActivity[]

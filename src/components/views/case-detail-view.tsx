@@ -870,7 +870,7 @@ export default function CaseDetailView({ user, navigate, params }: ViewProps) {
       ) : null}
 
       {/* Tabs */}
-      <Tabs defaultValue="hearings">
+      <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="hearings">Hearings</TabsTrigger>

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 import {
+  AlertTriangle,
   Download,
   EyeOff,
   FileText,
@@ -238,6 +239,7 @@ export default function DocumentsView({ user }: ViewProps) {
   const {
     data: detail,
     loading: detailLoading,
+    error: detailError,
     refetch: refetchDetail,
   } = useApiData<CaseDetailDTO>(selectedId ? `/api/cases/${selectedId}` : null)
 
@@ -365,6 +367,17 @@ export default function DocumentsView({ user }: ViewProps) {
 
           {detailLoading && !detail ? (
             <LoadingBlock rows={4} />
+          ) : detailError && !detail ? (
+            <EmptyState
+              icon={AlertTriangle}
+              title="Could not load documents"
+              description={detailError}
+              action={
+                <Button variant="outline" size="sm" onClick={refetchDetail}>
+                  Try again
+                </Button>
+              }
+            />
           ) : !selectedId ? (
             <EmptyState icon={FolderKanban} title="No case selected" description="Pick a case on the left to view its documents." />
           ) : documents.length === 0 ? (

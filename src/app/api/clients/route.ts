@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
-import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireString } from "@/lib/api-helpers"
+import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
 import { CLIENT_TYPES } from "@/lib/constants"
 import { hashPassword } from "@/lib/password"
 
@@ -124,18 +124,23 @@ export async function POST(request: Request) {
       const existing = await db.user.findUnique({ where: { email } })
       if (existing) throw new ApiError("A user with this email already exists.", 409)
 
-      const user = await db.user.create({
-        data: {
-          name,
-          email,
-          phone,
-          role: "CLIENT",
-          status: "ACTIVE",
-          password: hashPassword(password),
-          clientProfile: { create: { name, phone, email, nid, address, clientType } },
-        },
-        include: { clientProfile: true },
-      })
+      const user = await db.user
+        .create({
+          data: {
+            name,
+            email,
+            phone,
+            role: "CLIENT",
+            status: "ACTIVE",
+            password: hashPassword(password),
+            clientProfile: { create: { name, phone, email, nid, address, clientType } },
+          },
+          include: { clientProfile: true },
+        })
+        .catch((e: unknown) => {
+          throwConflictIfUniqueViolation(e, "A user with this email already exists.")
+          throw e
+        })
       const profile = user.clientProfile!
       return ok(clientDTO(profile, 0, 0, user.email))
     }

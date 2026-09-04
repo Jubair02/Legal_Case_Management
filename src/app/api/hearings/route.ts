@@ -3,38 +3,48 @@ import { ApiError, handle, requireAuth } from "@/lib/api-helpers"
 import { caseScopeWhere } from "@/lib/permissions"
 import { dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
 
-function hearingDTO(h: {
-  id: string
-  caseId: string
-  hearingDate: Date
-  court: string | null
-  judge: string | null
-  hearingType: string | null
-  status: string
-  notes: string | null
-  summary: string | null
-  courtOrder: string | null
-  nextAction: string | null
-  nextHearingDate: Date | null
-  createdAt: Date
-  case: { caseNumber: string; title: string }
-}) {
-  return {
+function hearingDTO(
+  h: {
+    id: string
+    caseId: string
+    hearingDate: Date
+    court: string | null
+    judge: string | null
+    hearingType: string | null
+    status: string
+    notes: string | null
+    summary: string | null
+    courtOrder: string | null
+    nextAction: string | null
+    nextHearingDate: Date | null
+    createdAt: Date
+    case: { caseNumber: string; title: string }
+  },
+  forClient = false
+) {
+  const base = {
     id: h.id,
     caseId: h.caseId,
     caseNumber: h.case.caseNumber,
     caseTitle: h.case.title,
     hearingDate: h.hearingDate,
     court: h.court,
-    judge: h.judge,
     hearingType: h.hearingType,
     status: h.status,
+    nextHearingDate: h.nextHearingDate,
+    createdAt: h.createdAt,
+  }
+  if (forClient) {
+    // Internal work-product (judge, notes, orders, strategy) is not exposed to clients.
+    return base
+  }
+  return {
+    ...base,
+    judge: h.judge,
     notes: h.notes,
     summary: h.summary,
     courtOrder: h.courtOrder,
     nextAction: h.nextAction,
-    nextHearingDate: h.nextHearingDate,
-    createdAt: h.createdAt,
   }
 }
 
@@ -82,6 +92,6 @@ export async function GET(request: Request) {
       orderBy: { hearingDate: ascending ? "asc" : "desc" },
     })
 
-    return Response.json({ data: hearings.map(hearingDTO) })
+    return Response.json({ data: hearings.map((h) => hearingDTO(h, user.role === "CLIENT")) })
   })
 }

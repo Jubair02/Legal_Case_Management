@@ -5,7 +5,7 @@ import { Loader2, Scale } from "lucide-react"
 
 import { LoginScreen } from "@/components/auth/login-screen"
 import { AppShell } from "@/components/layout/app-shell"
-import { apiGet, apiSend } from "@/lib/api-client"
+import { apiGet, apiSend, SESSION_EXPIRED_EVENT } from "@/lib/api-client"
 import type { SessionUser } from "@/lib/types"
 
 export default function Home() {
@@ -27,6 +27,14 @@ export default function Home() {
     return () => {
       active = false
     }
+  }, [])
+
+  // Any API 401 (expired/invalidated session) resets to the login screen so the
+  // user is never stranded on a dead SPA with silently failing requests.
+  useEffect(() => {
+    const onExpired = () => setUser(null)
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired)
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired)
   }, [])
 
   if (booting) {

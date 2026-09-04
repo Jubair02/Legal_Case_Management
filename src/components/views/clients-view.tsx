@@ -564,8 +564,17 @@ export default function ClientsView({ user, navigate }: ViewProps) {
           {filtered.map((c) => (
             <Card
               key={c.id}
+              role="button"
+              tabIndex={0}
+              aria-label={`Open client ${c.name}`}
               onClick={() => setDetailId(c.id)}
-              className="cursor-pointer gap-3 border-stone-200/80 py-4 transition-colors hover:border-emerald-300 hover:shadow-sm"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  setDetailId(c.id)
+                }
+              }}
+              className="cursor-pointer gap-3 border-stone-200/80 py-4 transition-colors hover:border-emerald-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
             >
               <CardHeader className="px-4">
                 <div className="flex items-start gap-3">

@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
-import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireNumber, requireString } from "@/lib/api-helpers"
+import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireNumber, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
 import { hashPassword } from "@/lib/password"
 
 const ACTIVE_CASE_STATUSES = ["ACTIVE", "PENDING", "ON_HOLD"]
@@ -40,10 +40,10 @@ async function activeCaseCounts(ids: string[]): Promise<Map<string, number>> {
   return map
 }
 
-/** GET /api/lawyers — any authenticated role may read. */
+/** GET /api/lawyers — internal staff & lawyers only (clients have no directory access). */
 export async function GET(request: Request) {
   return handle(async () => {
-    await requireAuth()
+    await requireAuth(["ADMIN", "STAFF", "LAWYER"])
     const { searchParams } = new URL(request.url)
     const specialization = searchParams.get("specialization")?.trim() ?? ""
     const status = searchParams.get("status")?.trim() ?? ""
@@ -104,18 +104,23 @@ export async function POST(request: Request) {
 
     const lawyer = createPortalAccess
       ? (
-          await db.user.create({
-            data: {
-              name,
-              email: email as string,
-              phone,
-              role: "LAWYER",
-              status: "ACTIVE",
-              password: hashPassword(portalPassword),
-              lawyerProfile: { create: profileData },
-            },
-            include: { lawyerProfile: true },
-          })
+          await db.user
+            .create({
+              data: {
+                name,
+                email: email as string,
+                phone,
+                role: "LAWYER",
+                status: "ACTIVE",
+                password: hashPassword(portalPassword),
+                lawyerProfile: { create: profileData },
+              },
+              include: { lawyerProfile: true },
+            })
+            .catch((e: unknown) => {
+              throwConflictIfUniqueViolation(e, "A user with this email already exists.")
+              throw e
+            })
         ).lawyerProfile
       : await db.lawyer.create({ data: profileData })
 

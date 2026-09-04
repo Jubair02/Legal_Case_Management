@@ -392,6 +392,8 @@ export interface HearingUpdateDialogProps {
 /** Records the outcome of a hearing via PATCH /api/hearings/[id]. */
 export function HearingUpdateDialog({ open, onOpenChange, hearing, onSaved }: HearingUpdateDialogProps) {
   const [status, setStatus] = useState("UPCOMING")
+  const [hearingDate, setHearingDate] = useState("")
+  const [notes, setNotes] = useState("")
   const [summary, setSummary] = useState("")
   const [courtOrder, setCourtOrder] = useState("")
   const [nextAction, setNextAction] = useState("")
@@ -401,6 +403,8 @@ export function HearingUpdateDialog({ open, onOpenChange, hearing, onSaved }: He
   useEffect(() => {
     if (!open || !hearing) return
     setStatus(hearing.status && HEARING_STATUS_LABELS[hearing.status] ? hearing.status : "UPCOMING")
+    setHearingDate(toDateInputValue(hearing.hearingDate))
+    setNotes(hearing.notes ?? "")
     setSummary(hearing.summary ?? "")
     setCourtOrder(hearing.courtOrder ?? "")
     setNextAction(hearing.nextAction ?? "")
@@ -410,10 +414,16 @@ export function HearingUpdateDialog({ open, onOpenChange, hearing, onSaved }: He
 
   const submit = async () => {
     if (!hearing) return
+    if (!hearingDate) {
+      toast.error("Hearing date is required.")
+      return
+    }
     try {
       setPending(true)
       await apiSend<HearingDTO>("PATCH", `/api/hearings/${hearing.id}`, {
         status,
+        hearingDate,
+        notes: notes.trim() || null,
         summary: summary.trim() || null,
         courtOrder: courtOrder.trim() || null,
         nextAction: nextAction.trim() || null,
@@ -440,20 +450,42 @@ export function HearingUpdateDialog({ open, onOpenChange, hearing, onSaved }: He
         </DialogHeader>
 
         <div className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="update-status">Status</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger id="update-status" className="w-full">
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  {HEARING_STATUSES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {HEARING_STATUS_LABELS[s]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="update-hearing-date">Hearing date</Label>
+              <Input
+                id="update-hearing-date"
+                type="date"
+                value={hearingDate}
+                onChange={(e) => setHearingDate(e.target.value)}
+              />
+            </div>
+          </div>
+
           <div className="space-y-1.5">
-            <Label htmlFor="update-status">Status</Label>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger id="update-status" className="w-full">
-                <SelectValue placeholder="Select status" />
-              </SelectTrigger>
-              <SelectContent>
-                {HEARING_STATUSES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {HEARING_STATUS_LABELS[s]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label htmlFor="update-notes">Internal notes</Label>
+            <Textarea
+              id="update-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Preparation notes, reminders…"
+              rows={2}
+            />
           </div>
 
           <div className="space-y-1.5">
@@ -513,7 +545,8 @@ export function HearingUpdateDialog({ open, onOpenChange, hearing, onSaved }: He
 /* ---------------------------------- View ---------------------------------- */
 
 export default function HearingsView({ user, navigate }: ViewProps) {
-  const canSchedule = user.role === "ADMIN" || user.role === "STAFF"
+  // Lawyers can schedule for their own assigned cases (same as inside a case file).
+  const canSchedule = user.role === "ADMIN" || user.role === "STAFF" || user.role === "LAWYER"
   const canUpdate = user.role === "ADMIN" || user.role === "STAFF" || user.role === "LAWYER"
 
   const [filter, setFilter] = useState<HearingFilter>("today")

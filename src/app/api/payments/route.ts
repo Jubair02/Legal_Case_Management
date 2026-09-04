@@ -60,14 +60,22 @@ export async function GET(request: Request) {
 
     const where: Record<string, unknown> = {}
     if (user.role === "LAWYER") {
-      where.invoice = { case: { lawyer: { userId: user.id } } }
+      const invoiceFilter: Record<string, unknown> = { case: { lawyer: { userId: user.id } } }
+      if (clientId) invoiceFilter.clientId = clientId
+      if (caseId) invoiceFilter.caseId = caseId
+      where.invoice = invoiceFilter
     } else if (user.role === "CLIENT") {
       if (!user.clientProfile) return Response.json({ data: [] })
-      where.invoice = { clientId: user.clientProfile.id }
+      // Clients are always locked to their own profile — never honour clientId param.
+      const invoiceFilter: Record<string, unknown> = { clientId: user.clientProfile.id }
+      if (caseId) invoiceFilter.caseId = caseId
+      where.invoice = invoiceFilter
+    } else {
+      // ADMIN: optional filters.
+      if (invoiceId) where.invoiceId = invoiceId
+      if (caseId) where.invoice = { caseId }
+      if (clientId) where.invoice = { clientId }
     }
-    if (invoiceId) where.invoiceId = invoiceId
-    if (caseId) where.invoice = { ...(where.invoice as object | undefined), caseId }
-    if (clientId) where.invoice = { ...(where.invoice as object | undefined), clientId }
 
     const rows = await db.payment.findMany({
       where: where as never,
@@ -81,19 +89,30 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   return handle(async () => {
-    const user = await requireAuth(["ADMIN"])
+    const user = await requireAuth(["ADMIN", "LAWYER"])
     const body = await readJson<Record<string, unknown>>(request)
 
     const invoiceId = requireString(body.invoiceId, "invoiceId")
     const invoice = await db.invoice.findUnique({
       where: { id: invoiceId },
       include: {
-        case: { select: { caseNumber: true, title: true } },
+        case: {
+          select: { caseNumber: true, title: true, lawyer: { select: { userId: true } } },
+        },
         client: { select: { id: true, name: true } },
         payments: { select: { amount: true } },
       },
     })
     if (!invoice) throw new ApiError("Invoice not found.", 404)
+
+    // Lawyers can only record payments on invoices of their own cases.
+    if (user.role === "LAWYER" && invoice.case?.lawyer?.userId !== user.id) {
+      throw new ApiError("You can only record payments for your own cases.", 403)
+    }
+
+    if (invoice.status === "CANCELLED") {
+      throw new ApiError("This invoice has been cancelled — payments cannot be recorded against it.", 409)
+    }
 
     const amount = requireNumber(body.amount, "amount")
     if (!(amount > 0)) throw new ApiError('"amount" must be greater than 0.', 422)
@@ -134,9 +153,7 @@ export async function POST(request: Request) {
     const newPaid = paid + amount
     const todayStart = dhakaDayRange(dhakaDayOffset(0)).start
     let status: string
-    if (invoice.status === "CANCELLED") {
-      status = "CANCELLED"
-    } else if (newPaid >= invoice.amount - 0.005) {
+    if (newPaid >= invoice.amount - 0.005) {
       status = "PAID"
     } else if (newPaid > 0.005) {
       status = "PARTIAL"

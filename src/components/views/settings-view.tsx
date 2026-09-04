@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState } from "react"
 import {
   AlertTriangle,
   Check,
+  Eye,
+  EyeOff,
+  KeyRound,
   Lock,
   Mail,
   MoreHorizontal,
@@ -560,6 +563,100 @@ function SystemInfoTab({ user }: { user: ViewProps["user"] }) {
   )
 }
 
+/* ---------------------------- Change password ---------------------------- */
+
+function ChangePasswordCard() {
+  const [current, setCurrent] = useState("")
+  const [next, setNext] = useState("")
+  const [confirm, setConfirm] = useState("")
+  const [show, setShow] = useState(false)
+  const [pending, setPending] = useState(false)
+
+  const submit = async () => {
+    if (!current || !next) {
+      toast.error("Please fill in both password fields.")
+      return
+    }
+    if (next.length < 6) {
+      toast.error("New password must be at least 6 characters.")
+      return
+    }
+    if (next !== confirm) {
+      toast.error("New password and confirmation do not match.")
+      return
+    }
+    setPending(true)
+    try {
+      await apiSend("POST", "/api/auth/change-password", {
+        currentPassword: current,
+        newPassword: next,
+      })
+      toast.success("Password changed successfully.")
+      setCurrent("")
+      setNext("")
+      setConfirm("")
+    } catch (e) {
+      toast.error(errorMessage(e))
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <SectionCard title="Change Password" description="Update the password for your own account.">
+      <div className="max-w-md space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="pw-current">Current password</Label>
+          <div className="relative">
+            <Input
+              id="pw-current"
+              type={show ? "text" : "password"}
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              autoComplete="current-password"
+            />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="pw-new">New password</Label>
+          <div className="relative">
+            <Input
+              id="pw-new"
+              type={show ? "text" : "password"}
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              onClick={() => setShow((s) => !s)}
+              aria-label={show ? "Hide passwords" : "Show passwords"}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">At least 6 characters, maximum 128.</p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="pw-confirm">Confirm new password</Label>
+          <Input
+            id="pw-confirm"
+            type={show ? "text" : "password"}
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            autoComplete="new-password"
+          />
+        </div>
+        <Button onClick={submit} disabled={pending} className="gap-2">
+          <KeyRound className="h-4 w-4" />
+          {pending ? "Saving…" : "Change password"}
+        </Button>
+      </div>
+    </SectionCard>
+  )
+}
+
 /* --------------------------------- View --------------------------------- */
 
 export default function SettingsView({ user }: ViewProps) {
@@ -569,22 +666,21 @@ export default function SettingsView({ user }: ViewProps) {
     <div className="space-y-6">
       <PageHeader title="Settings" description="User management & chamber information" />
 
-      <Tabs defaultValue="users">
+      <Tabs defaultValue={isAdmin ? "users" : "account"}>
         <TabsList>
-          <TabsTrigger value="users">User Management</TabsTrigger>
+          {isAdmin ? <TabsTrigger value="users">User Management</TabsTrigger> : null}
+          <TabsTrigger value="account">My Account</TabsTrigger>
           <TabsTrigger value="system">System Info</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="users" className="mt-4">
-          {isAdmin ? (
+        {isAdmin ? (
+          <TabsContent value="users" className="mt-4">
             <UsersPanel />
-          ) : (
-            <EmptyState
-              icon={Lock}
-              title="Only administrators can manage users"
-              description="User accounts, roles and portal access are managed by chamber administrators."
-            />
-          )}
+          </TabsContent>
+        ) : null}
+
+        <TabsContent value="account" className="mt-4">
+          <ChangePasswordCard />
         </TabsContent>
 
         <TabsContent value="system" className="mt-4">

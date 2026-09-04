@@ -1,8 +1,10 @@
 import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
-import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireString } from "@/lib/api-helpers"
+import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
 import { ROLES } from "@/lib/constants"
-import { hashPassword } from "@/lib/password"
+import { hashPassword, MAX_PASSWORD_LENGTH } from "@/lib/password"
+
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
 const userInclude = {
   lawyerProfile: { select: { name: true } },
@@ -63,8 +65,11 @@ export async function POST(request: Request) {
     const phone = optionalString(body.phone)
     const role = requireString(body.role, "role")
 
-    if (!email.includes("@")) throw new ApiError("Please enter a valid email address.", 422)
+    if (!EMAIL_RE.test(email)) throw new ApiError("Please enter a valid email address.", 422)
     if (password.length < 6) throw new ApiError("Password must be at least 6 characters.", 422)
+    if (password.length > MAX_PASSWORD_LENGTH) {
+      throw new ApiError(`Password must be at most ${MAX_PASSWORD_LENGTH} characters.`, 422)
+    }
     if (!(ROLES as readonly string[]).includes(role)) {
       throw new ApiError(`"role" must be one of: ${ROLES.join(", ")}.`, 422)
     }
@@ -72,17 +77,22 @@ export async function POST(request: Request) {
     const existing = await db.user.findUnique({ where: { email } })
     if (existing) throw new ApiError("A user with this email already exists.", 409)
 
-    const user = await db.user.create({
-      data: {
-        name,
-        email,
-        phone,
-        role,
-        status: "ACTIVE",
-        password: hashPassword(password),
-      },
-      include: userInclude,
-    })
+    const user = await db.user
+      .create({
+        data: {
+          name,
+          email,
+          phone,
+          role,
+          status: "ACTIVE",
+          password: hashPassword(password),
+        },
+        include: userInclude,
+      })
+      .catch((e: unknown) => {
+        throwConflictIfUniqueViolation(e, "A user with this email already exists.")
+        throw e
+      })
 
     return ok(userDTO(user))
   })

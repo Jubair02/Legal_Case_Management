@@ -29,6 +29,16 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
 }
 
 /**
+ * Map a Prisma unique-constraint violation (P2002) to a friendly 409.
+ * Usage: wrap any create/update that can race past a pre-check.
+ */
+export function throwConflictIfUniqueViolation(e: unknown, message: string): void {
+  if ((e as { code?: string })?.code === "P2002") {
+    throw new ApiError(message, 409)
+  }
+}
+
+/**
  * Require an authenticated user. Optionally restrict to given roles.
  * Throws ApiError (401/403) when not allowed.
  */
@@ -66,8 +76,11 @@ export function optionalString(v: unknown): string | null {
 }
 
 export function requireNumber(v: unknown, field: string): number {
+  if (typeof v === "string" && v.trim().length === 0) {
+    throw new ApiError(`"${field}" must be a number.`, 422)
+  }
   const n = typeof v === "string" ? Number(v) : (v as number)
-  if (typeof n !== "number" || Number.isNaN(n)) {
+  if (typeof n !== "number" || !Number.isFinite(n)) {
     throw new ApiError(`"${field}" must be a number.`, 422)
   }
   return n

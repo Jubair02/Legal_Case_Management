@@ -13,7 +13,7 @@ type InvoiceRow = {
   dueDate: Date | null
   status: string
   createdAt: Date
-  case: { caseNumber: string; title: string } | null
+  case: { caseNumber: string; title: string; lawyer?: { userId: string } | null } | null
   client: { id: string; name: string }
   payments: {
     id: string
@@ -29,7 +29,7 @@ type InvoiceRow = {
 }
 
 const invoiceInclude = {
-  case: { select: { caseNumber: true, title: true } },
+  case: { select: { caseNumber: true, title: true, lawyer: { select: { userId: true } } } },
   client: { select: { id: true, name: true } },
   payments: true,
 } as const
@@ -97,9 +97,13 @@ async function loadInvoice(id: string): Promise<InvoiceRow> {
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   return handle(async () => {
-    await requireAuth(["ADMIN"])
+    const user = await requireAuth(["ADMIN", "LAWYER"])
     const { id } = await params
     const inv = await loadInvoice(id)
+    // Lawyers may only manage invoices attached to their own cases.
+    if (user.role === "LAWYER" && inv.case?.lawyer?.userId !== user.id) {
+      throw new ApiError("You can only manage invoices for your own cases.", 403)
+    }
     const body = await readJson<Record<string, unknown>>(request)
 
     const data: Record<string, unknown> = {}

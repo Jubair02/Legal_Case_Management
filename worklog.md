@@ -338,3 +338,50 @@ Stage Summary:
 - HIGH: no global 401→login handling; LAWYER missing Billing nav; hardcoded JWT fallback secret; login rate-limit/timing hardening absent.
 - MEDIUM: payment on CANCELLED invoice allowed; billing tabOverride stale; case-detail default tab; invoice clientId/caseId mismatch; lawyer email-clear 500; SVG-XSS; no self-service password change.
 - Full prioritized findings list delivered to user (37 items). No code changes made during review.
+
+---
+Task ID: QA-FIX-1
+Agent: Z.ai Code (main, fix pass)
+Task: Fix all 37 issues from QA-REVIEW-1 (2 critical, 4 high, 13 medium, 18 low).
+
+Work Log (backend):
+- invoices/route.ts GET: CLIENT scope no longer overridable via ?clientId= (admin-only filter); LAWYER may narrow by own clientId. POST: opened to LAWYER (caseId required, case must belong to lawyer, case.clientId===clientId enforced).
+- payments/route.ts GET: same scope fix (per-role invoice filters, CLIENT locked to own profile). POST: opened to LAWYER (own cases only); CANCELLED invoice now rejected 409.
+- invoices/[id] PATCH: LAWYER allowed for own-case invoices (include case.lawyer.userId); DELETE stays ADMIN-only.
+- lib/auth.ts: getSecret() fails fast in production when AUTH_SECRET unset; cookie secure flag env-driven (NODE_ENV=production && !DISABLE_SECURE_COOKIES).
+- lib/rate-limit.ts (new): in-memory per-IP+email limiter (8 fails/10min → 5min block).
+- lib/password.ts: MAX_PASSWORD_LENGTH=128 enforced in hashPassword; DUMMY_HASH for timing-equalized login.
+- auth/login: dummy-hash verify for unknown emails, generic 401 for inactive accounts (no oracle), rate limiting, password cap.
+- auth/change-password (new): self-service POST for any authed user (verifies current, min6/max128, different-from-current).
+- users/route.ts: EMAIL_RE validation, password max length, P2002→409 on create.
+- lawyers/route.ts GET + lawyers/[id] GET: restricted to ADMIN/STAFF/LAWYER (no client directory access).
+- lawyers/[id] PATCH: clearing email on portal-linked lawyer → friendly 422 (was Prisma 500); status changes now sync to linked user.status.
+- clients/[id] PATCH: email changes sync to portal user.email (uniqueness checked; clearing blocked for portal clients).
+- cases/route.ts: P2002→409 on create. cases/[id]: type validated against CASE_TYPES on PATCH; close-case effectiveSummary computed once (empty-string edge fixed); DELETE wrapped in $transaction (files unlinked after commit).
+- files/[documentId]: uploads-root path containment check; SVG/HTML served as attachment with CSP sandbox + nosniff; cases/[id]/documents POST rejects image/svg+xml + text/html.
+- hearings GET + cases/[id] buildCaseDetail: judge/notes/summary/courtOrder/nextAction stripped from CLIENT responses.
+- api/route.ts (hello world) deleted. api-helpers: requireNumber rejects ""/Infinity; throwConflictIfUniqueViolation helper added.
+
+Work Log (frontend):
+- lib/api-client.ts: SESSION_EXPIRED_EVENT dispatched on any 401 (+429 message). page.tsx listens → setUser(null) → login screen (stranded-SPA bug fixed).
+- app-shell.tsx: LAWYER gained Billing nav; CLIENT standalone Hearings nav removed (PRD); Settings nav added to STAFF/LAWYER/CLIENT (password change reachable); badge count driven solely by unread-count endpoint (refresh after mark-read; no 8-item degrade).
+- billing-view.tsx: tabOverride removed (tab fully controlled by params.tab — sidebar Invoices/Payments switching fixed); canManage=ADMIN|LAWYER gates New Invoice + actions (delete still admin-only); NewInvoiceDialog requireCase for lawyers; RecordPaymentDialog client-side overpay guard.
+- case-detail-view.tsx: defaultValue="overview".
+- hearings-view.tsx: canSchedule includes LAWYER; HearingUpdateDialog gained hearing-date + notes fields (parity with case-detail dialog).
+- documents-view.tsx: detailError destructured + error EmptyState with retry.
+- reports-view.tsx: fetch guarded by isAdmin (null path otherwise).
+- login-screen.tsx: demo accounts panel gated (NODE_ENV!==production || NEXT_PUBLIC_ENABLE_DEMO_ACCOUNTS=true).
+- settings-view.tsx: new ChangePasswordCard (My Account tab for ALL roles; User Management tab admin-only).
+- clients/lawyers-view: cards keyboard-accessible (role=button, tabIndex, Enter/Space, focus ring, aria-label).
+- types.ts: DashboardDTO.stats widened to include ISO-string values.
+
+Verification:
+- bun run lint → clean. Dev server compiles; GET / 200.
+- API regressions (all PASS): invoice/payments ?clientId= leak closed (client sees only own); CLIENT /api/lawyers 403; Infinity→422; invoice client/case mismatch→422; lawyer invoice own-case 201 / other-case 403 / no-case 422; payment on cancelled→409; hearing internal fields stripped for CLIENT (kept for LAWYER); change-password wrong-current 401, correct flow works; inactive login = generic 401; rate limit 9th attempt→429; login timing equalized (~69ms unknown email).
+- Browser (agent-browser, all 4 roles): admin case detail opens Overview; LAWYER sees Billing + New Invoice with scoped list; CLIENT nav per PRD + billing sidebar↔tab switching fixed; password change UI works (changed + restored via UI/API); cookie-clear → redirected to login screen; staff Settings shows My Account/System only; hearing dialog shows date+notes fields.
+- Test data cleaned: QA invoice INV-2026-0007 deleted; DB back to 6 seed cases / 6 invoices; client+staff passwords restored to seed values.
+
+Stage Summary:
+- All CRITICAL/HIGH/MEDIUM issues fixed and verified; LOW issues fixed except: pagination (MVP-acceptable) and unused shadcn stock components (left in place intentionally).
+- Notable product changes per PRD: lawyers now manage billing for own cases (create/cancel invoice, record payment, view billing); self-service password change for every role; demo credentials hidden in production builds.
+- Before real deployment still needed: set AUTH_SECRET + run behind HTTPS (cookie secure flag activates in production).

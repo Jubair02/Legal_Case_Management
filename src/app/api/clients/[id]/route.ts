@@ -183,11 +183,36 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     const nameChanged = typeof data.name === "string" && data.name !== client.name
 
+    // Sync a changed email to the linked portal account (its email is the login).
+    let portalEmail: string | null = null
+    if (body.email !== undefined && client.userId) {
+      const emailRaw = optionalString(body.email)
+      portalEmail = emailRaw ? emailRaw.toLowerCase() : null
+      if (portalEmail) {
+        const dup = await db.user.findFirst({
+          where: { email: portalEmail, NOT: { id: client.userId } },
+        })
+        if (dup) throw new ApiError("A portal account with this email already exists.", 409)
+      } else {
+        // Portal accounts require an email — refuse to clear it there.
+        throw new ApiError(
+          "This client has a portal account — the email cannot be removed. Set a different email instead.",
+          422
+        )
+      }
+    }
+
     await db.$transaction(async (tx) => {
       await tx.client.update({ where: { id }, data })
-      // Keep portal user name in sync.
-      if (nameChanged && client.userId) {
-        await tx.user.update({ where: { id: client.userId }, data: { name: data.name as string } })
+      // Keep portal user name/email in sync.
+      if (client.userId && (nameChanged || portalEmail)) {
+        await tx.user.update({
+          where: { id: client.userId },
+          data: {
+            ...(nameChanged ? { name: data.name as string } : {}),
+            ...(portalEmail ? { email: portalEmail } : {}),
+          },
+        })
       }
     })
 

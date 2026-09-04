@@ -52,6 +52,14 @@ const DEMO_ACCOUNTS: DemoAccount[] = [
   { label: "Client", icon: UserIcon, email: "client@ainsheba.bd", password: "Client@123" },
 ]
 
+/**
+ * Demo quick-fill buttons are a development convenience only — they are
+ * compiled out of production builds (set NEXT_PUBLIC_ENABLE_DEMO_ACCOUNTS=true
+ * to force them on).
+ */
+const SHOW_DEMO_ACCOUNTS =
+  process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_ENABLE_DEMO_ACCOUNTS === "true"
+
 export interface LoginScreenProps {
   onLogin: (user: SessionUser) => void
 }
@@ -199,34 +207,36 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             </CardContent>
           </Card>
 
-          <Card className="border-stone-200/80">
-            <CardHeader>
-              <CardTitle className="text-sm">Demo accounts</CardTitle>
-              <CardDescription className="text-xs">One-click sign in with a seeded role account.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {DEMO_ACCOUNTS.map((acc) => {
-                const Icon = acc.icon
-                return (
-                  <Button
-                    key={acc.label}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="justify-start"
-                    disabled={pending}
-                    onClick={() => quickFill(acc)}
-                  >
-                    <Icon className="h-4 w-4 shrink-0 text-emerald-700" />
-                    <span className="min-w-0 flex-1 text-left">
-                      <span className="block text-xs font-medium">{acc.label}</span>
-                      <span className="block truncate text-[11px] text-muted-foreground">{acc.email}</span>
-                    </span>
-                  </Button>
-                )
-              })}
-            </CardContent>
-          </Card>
+          {SHOW_DEMO_ACCOUNTS ? (
+            <Card className="border-stone-200/80">
+              <CardHeader>
+                <CardTitle className="text-sm">Demo accounts</CardTitle>
+                <CardDescription className="text-xs">One-click sign in with a seeded role account.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {DEMO_ACCOUNTS.map((acc) => {
+                  const Icon = acc.icon
+                  return (
+                    <Button
+                      key={acc.label}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="justify-start"
+                      disabled={pending}
+                      onClick={() => quickFill(acc)}
+                    >
+                      <Icon className="h-4 w-4 shrink-0 text-emerald-700" />
+                      <span className="min-w-0 flex-1 text-left">
+                        <span className="block text-xs font-medium">{acc.label}</span>
+                        <span className="block truncate text-[11px] text-muted-foreground">{acc.email}</span>
+                      </span>
+                    </Button>
+                  )
+                })}
+              </CardContent>
+            </Card>
+          ) : null}
         </div>
       </div>
     </div>

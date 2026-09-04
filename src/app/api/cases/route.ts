@@ -1,5 +1,5 @@
 import { db } from "@/lib/db"
-import { ApiError, handle, optionalString, parseDateOnly, readJson, requireAuth, requireString } from "@/lib/api-helpers"
+import { ApiError, handle, optionalString, parseDateOnly, readJson, requireAuth, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
 import { caseScopeWhere } from "@/lib/permissions"
 import { CASE_PRIORITIES, CASE_STATUSES, CASE_TYPES } from "@/lib/constants"
 import { adminIds, clientUserId, lawyerUserId, notifyUsers } from "@/lib/notify"
@@ -147,26 +147,32 @@ export async function POST(request: Request) {
       if (!lawyer) throw new ApiError("Lawyer not found.", 422)
     }
 
-    const created = await db.case.create({
-      data: {
-        caseNumber,
-        title,
-        type,
-        clientId,
-        lawyerId: lawyerId ?? null,
-        court,
-        district,
-        filingDate,
-        status,
-        priority,
-        oppositeParty,
-        description,
-      },
-      include: {
-        client: { select: { id: true, name: true, phone: true } },
-        lawyer: { select: { id: true, name: true } },
-      },
-    })
+    let created
+    try {
+      created = await db.case.create({
+        data: {
+          caseNumber,
+          title,
+          type,
+          clientId,
+          lawyerId: lawyerId ?? null,
+          court,
+          district,
+          filingDate,
+          status,
+          priority,
+          oppositeParty,
+          description,
+        },
+        include: {
+          client: { select: { id: true, name: true, phone: true } },
+          lawyer: { select: { id: true, name: true } },
+        },
+      })
+    } catch (e) {
+      throwConflictIfUniqueViolation(e, "Case number already exists.")
+      throw e
+    }
 
     await db.caseUpdate.create({
       data: {

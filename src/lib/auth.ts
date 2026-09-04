@@ -2,9 +2,17 @@ import { SignJWT, jwtVerify } from "jose"
 import { cookies } from "next/headers"
 import { db } from "@/lib/db"
 
-const SECRET = new TextEncoder().encode(
-  process.env.AUTH_SECRET || "ainsheba-legal-case-management-dev-secret-key-2026"
-)
+function getSecret(): Uint8Array {
+  const secret = process.env.AUTH_SECRET
+  if (!secret && process.env.NODE_ENV === "production") {
+    throw new Error(
+      "AUTH_SECRET environment variable is required in production. Refusing to sign sessions with an insecure fallback key."
+    )
+  }
+  return new TextEncoder().encode(
+    secret || "ainsheba-legal-case-management-dev-secret-key-2026"
+  )
+}
 
 export const SESSION_COOKIE = "lcm_session"
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7 // 7 days
@@ -21,12 +29,12 @@ export async function signSession(payload: SessionPayload): Promise<string> {
     .setSubject(payload.sub)
     .setIssuedAt()
     .setExpirationTime(`${SESSION_MAX_AGE}s`)
-    .sign(SECRET)
+    .sign(getSecret())
 }
 
 export async function verifySessionToken(token: string): Promise<SessionPayload | null> {
   try {
-    const { payload } = await jwtVerify(token, SECRET)
+    const { payload } = await jwtVerify(token, getSecret())
     if (!payload.sub) return null
     return {
       sub: payload.sub,
@@ -43,7 +51,8 @@ export async function setSessionCookie(token: string) {
   cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: false, // sandbox runs behind proxy without https
+    // The sandbox proxies HTTPS -> HTTP, so only enable `secure` in real production.
+    secure: process.env.NODE_ENV === "production" && process.env.DISABLE_SECURE_COOKIES !== "true",
     path: "/",
     maxAge: SESSION_MAX_AGE,
   })
