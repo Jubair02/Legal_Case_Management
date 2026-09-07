@@ -435,3 +435,21 @@ Stage Summary:
 - All QA-REVIEW-2 findings fixed (5 MEDIUM + LOW list) except intentionally-skipped product choices: pagination (MVP-acceptable), 27 unused stock shadcn components (kept), "today" hearings incl. CANCELLED/COMPLETED (ambiguous), follow-up-hearing notification (minor).
 - Session model now: password change revokes other sessions (7-day JWTs no longer survive password changes).
 - New endpoint: DELETE /api/payments/[id] (ADMIN) closes the mis-recorded-payment product gap.
+
+---
+Task ID: QA-REVIEW-3
+Agent: Z.ai Code (main, final comprehensive review)
+Task: Complete review of the entire website — features, pages, UI/UX, roles, workflows, issues, security, performance, structure + recommendations; deliver one comprehensive report.
+
+Work Log:
+- Spawned 2 research-only Explore agents: (A) backend review of all 25 API routes + 14 libs + schema/seed (route×role matrix, IDOR, validation, uploads, billing integrity, perf, prod-readiness); (B) frontend review of all 11 views + shell + shared components (feature map per view×role, nav per role, a11y, UX consistency, perf).
+- Dynamic curl suite (4 role jars): all PASS — CLIENT 403 lawyers/users/reports; invoices locked to own clientId (2 rows, single client id); hearing internals CLEAN for CLIENT; STAFF 403 invoices/payments/reports; LAWYER scoped (3 cases / 2 invoices); unauth 401; overpay 422 "Payment exceeds remaining due of ৳8,000"; payment lifecycle POST ৳100→PARTIAL→DELETE→UNPAID with status recompute; change-password wrong-current 401. Test payment cleaned up; seed state intact (6 cases / 6 invoices).
+- Environment incident: first payment POST 500'd with SQLite "attempt to write a readonly database" — stale Prisma connection after db file was replaced by earlier `prisma db push`; fixed by restarting dev server via python double-fork daemon (plain nohup child got reaped by sandbox). Not an app bug.
+- Browser (agent-browser, all 4 roles): login screen + demo buttons; ADMIN dashboard stat cards (6 cases/5 active/3 hearings/৳23,000 due), case detail opens Overview, 5 tabs, edit/status/delete actions; Billing 6 invoices + 3 summary cards; Reports renders 2 recharts charts + case-by-lawyer table. CLIENT nav exactly per PRD (no Hearings/Lawyers/Reports), invoices read-only (no New Invoice/Record Payment), documents banner + download-only, mark-all-read + badge clear + toast, "Judge" hit on dashboard was court NAME "District & Sessions Judge Court" (false positive, internals not leaked). LAWYER nav (My Cases/Hearings/Documents/My Clients/Billing/Notifications/Settings), Billing with New Invoice + 2 own invoices, no Reports. STAFF nav lacks Lawyers/Billing/Reports; Settings shows only My Account + System Info. Mobile 390×844: hamburger sheet nav works, notifications list stacks cleanly, footer pushed down naturally on long content and sits at bottom with designed 16px gutter on short content.
+- Harness quirks (NOT app bugs, documented): (1) agent-browser input pipeline died mid-session — trusted clicks/mouse events delivered zero DOM events (verified via instrumentation) while JS .click() worked; fresh browser session resolved it. (2) find --name "Notifications" matches the header bell dropdown before the sidebar item — a locator ambiguity to avoid in future test passes.
+- bun run lint clean; dev.log error-free through entire session; DB verified back to seed state after tests.
+
+Stage Summary:
+- Product verified end-to-end healthy after QA-FIX-1 + QA-FIX-2; all previously fixed issues re-confirmed holding (RBAC scoping, hearing-field stripping, payment integrity, session revocation, a11y rows).
+- Remaining open items are enhancement-grade, not defects: git-tracked .env/db (rotate+untrack), admin-reset session revocation, URL deep-linking, code-splitting/recharts for CLIENT, declared-stack adoption (TanStack Query/RHF/zod), pagination, security headers, Float money, Bangla webfont, demo-creds-in-bundle.
+- Comprehensive final report (architecture, features×roles, workflows, security, perf, prioritized findings, roadmap) delivered to user.

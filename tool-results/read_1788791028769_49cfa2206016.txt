@@ -616,74 +616,75 @@
    616→                key={f.key}
    617→                type="button"
    618→                onClick={() => setFilter(f.key)}
-   619→                className={cn(
-   620→                  "rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors",
-   621→                  active ? "bg-emerald-600 text-white shadow-xs" : "text-muted-foreground hover:bg-stone-100 hover:text-foreground"
-   622→                )}
-   623→              >
-   624→                {f.label}
-   625→                {active && data ? ` (${data.length})` : ""}
-   626→              </button>
-   627→            )
-   628→          })}
-   629→        </div>
-   630→      </div>
-   631→
-   632→      {loading && !data ? (
-   633→        <LoadingBlock rows={4} />
-   634→      ) : error && !data ? (
-   635→        <EmptyState
-   636→          icon={CalendarDays}
-   637→          title="Could not load hearings"
-   638→          description={error}
-   639→          action={
-   640→            <Button variant="outline" size="sm" onClick={refetch}>
-   641→              Try again
-   642→            </Button>
-   643→          }
-   644→        />
-   645→      ) : hearings.length === 0 ? (
-   646→        <EmptyState
-   647→          icon={CalendarDays}
-   648→          title={EMPTY_BY_FILTER[filter].title}
-   649→          description={EMPTY_BY_FILTER[filter].description}
-   650→          action={
-   651→            canSchedule ? (
-   652→              <Button size="sm" onClick={() => setScheduleOpen(true)}>
-   653→                <CalendarPlus className="h-4 w-4" /> Schedule Hearing
-   654→              </Button>
-   655→            ) : undefined
-   656→          }
-   657→        />
-   658→      ) : filter === "today" ? (
-   659→        <div className="space-y-3">
-   660→          {todayGroup.map((g) => (
-   661→            <div key={g.key} className="space-y-3">
-   662→              {renderDayHeader(g.date)}
-   663→              {renderCards(g.hearings)}
-   664→            </div>
-   665→          ))}
-   666→        </div>
-   667→      ) : (
-   668→        <div className="space-y-6">
-   669→          {groups.map((g) => (
-   670→            <div key={g.key} className="space-y-3">
-   671→              {renderDayHeader(g.date)}
-   672→              {renderCards(g.hearings)}
-   673→            </div>
-   674→          ))}
-   675→        </div>
-   676→      )}
-   677→
-   678→      <ScheduleHearingDialog open={scheduleOpen} onOpenChange={setScheduleOpen} onSaved={refetch} />
-   679→
-   680→      <HearingUpdateDialog
-   681→        open={updateOpen}
-   682→        onOpenChange={setUpdateOpen}
-   683→        hearing={updateTarget}
-   684→        onSaved={refetch}
-   685→      />
-   686→    </div>
-   687→  )
-   688→}
-   689→
+   619→                aria-pressed={active}
+   620→                className={cn(
+   621→                  "rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors",
+   622→                  active ? "bg-emerald-600 text-white shadow-xs" : "text-muted-foreground hover:bg-stone-100 hover:text-foreground"
+   623→                )}
+   624→              >
+   625→                {f.label}
+   626→                {active && data ? ` (${data.length})` : ""}
+   627→              </button>
+   628→            )
+   629→          })}
+   630→        </div>
+   631→      </div>
+   632→
+   633→      {loading && !data ? (
+   634→        <LoadingBlock rows={4} />
+   635→      ) : error && !data ? (
+   636→        <EmptyState
+   637→          icon={CalendarDays}
+   638→          title="Could not load hearings"
+   639→          description={error}
+   640→          action={
+   641→            <Button variant="outline" size="sm" onClick={refetch}>
+   642→              Try again
+   643→            </Button>
+   644→          }
+   645→        />
+   646→      ) : hearings.length === 0 ? (
+   647→        <EmptyState
+   648→          icon={CalendarDays}
+   649→          title={EMPTY_BY_FILTER[filter].title}
+   650→          description={EMPTY_BY_FILTER[filter].description}
+   651→          action={
+   652→            canSchedule ? (
+   653→              <Button size="sm" onClick={() => setScheduleOpen(true)}>
+   654→                <CalendarPlus className="h-4 w-4" /> Schedule Hearing
+   655→              </Button>
+   656→            ) : undefined
+   657→          }
+   658→        />
+   659→      ) : filter === "today" ? (
+   660→        <div className="space-y-3">
+   661→          {todayGroup.map((g) => (
+   662→            <div key={g.key} className="space-y-3">
+   663→              {renderDayHeader(g.date)}
+   664→              {renderCards(g.hearings)}
+   665→            </div>
+   666→          ))}
+   667→        </div>
+   668→      ) : (
+   669→        <div className="space-y-6">
+   670→          {groups.map((g) => (
+   671→            <div key={g.key} className="space-y-3">
+   672→              {renderDayHeader(g.date)}
+   673→              {renderCards(g.hearings)}
+   674→            </div>
+   675→          ))}
+   676→        </div>
+   677→      )}
+   678→
+   679→      <ScheduleHearingDialog open={scheduleOpen} onOpenChange={setScheduleOpen} onSaved={refetch} />
+   680→
+   681→      <HearingUpdateDialog
+   682→        open={updateOpen}
+   683→        onOpenChange={setUpdateOpen}
+   684→        hearing={updateTarget}
+   685→        onSaved={refetch}
+   686→      />
+   687→    </div>
+   688→  )
+   689→}
+   690→

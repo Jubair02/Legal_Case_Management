@@ -1,0 +1,1157 @@
+     1→"use client"
+     2→
+     3→import { useEffect, useMemo, useState } from "react"
+     4→import {
+     5→  AlertTriangle,
+     6→  Ban,
+     7→  Banknote,
+     8→  Eye,
+     9→  Landmark,
+    10→  MoreHorizontal,
+    11→  Plus,
+    12→  Receipt,
+    13→  Search,
+    14→  ShieldAlert,
+    15→  Smartphone,
+    16→  Trash2,
+    17→  TrendingUp,
+    18→  Wallet,
+    19→} from "lucide-react"
+    20→import type { LucideIcon } from "lucide-react"
+    21→import { toast } from "sonner"
+    22→
+    23→import { ConfirmDialog } from "@/components/shared/confirm-dialog"
+    24→import { EmptyState } from "@/components/shared/empty-state"
+    25→import { LoadingBlock } from "@/components/shared/loading-block"
+    26→import { PageHeader } from "@/components/shared/page-header"
+    27→import { StatCard } from "@/components/shared/stat-card"
+    28→import { StatusBadge } from "@/components/shared/status-badge"
+    29→import { useApiData } from "@/hooks/use-api-data"
+    30→import { Badge } from "@/components/ui/badge"
+    31→import { Button } from "@/components/ui/button"
+    32→import {
+    33→  Dialog,
+    34→  DialogContent,
+    35→  DialogDescription,
+    36→  DialogFooter,
+    37→  DialogHeader,
+    38→  DialogTitle,
+    39→} from "@/components/ui/dialog"
+    40→import {
+    41→  DropdownMenu,
+    42→  DropdownMenuContent,
+    43→  DropdownMenuItem,
+    44→  DropdownMenuSeparator,
+    45→  DropdownMenuTrigger,
+    46→} from "@/components/ui/dropdown-menu"
+    47→import { Input } from "@/components/ui/input"
+    48→import { Label } from "@/components/ui/label"
+    49→import { Progress } from "@/components/ui/progress"
+    50→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+    51→import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+    52→import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+    53→import { Textarea } from "@/components/ui/textarea"
+    54→import { apiSend } from "@/lib/api-client"
+    55→import { BILLING_TYPES, INVOICE_STATUSES, PAYMENT_METHODS } from "@/lib/constants"
+    56→import type { CaseListDTO, ClientDTO, InvoiceDTO, PaymentDTO, ViewKey, ViewParams, ViewProps } from "@/lib/types"
+    57→import { cn, formatCurrency, formatDate, invoiceStatusStyles, toDateInputValue } from "@/lib/utils"
+    58→
+    59→type NavigateFn = (view: ViewKey, params?: ViewParams) => void
+    60→
+    61→const INVOICE_STATUS_LABELS: Record<string, string> = {
+    62→  UNPAID: "Unpaid",
+    63→  PARTIAL: "Partial",
+    64→  PAID: "Paid",
+    65→  OVERDUE: "Overdue",
+    66→  CANCELLED: "Cancelled",
+    67→}
+    68→
+    69→const ALL = "ALL"
+    70→const NO_CASE = "NONE"
+    71→
+    72→function num(v: number | null | undefined): number {
+    73→  return typeof v === "number" && Number.isFinite(v) ? v : 0
+    74→}
+    75→
+    76→function errorMessage(e: unknown): string {
+    77→  return e instanceof Error ? e.message : "Something went wrong. Please try again."
+    78→}
+    79→
+    80→/** Case number chip that opens the case file when clicked. */
+    81→function CaseChip({
+    82→  caseId,
+    83→  caseNumber,
+    84→  onOpen,
+    85→}: {
+    86→  caseId: string | null
+    87→  caseNumber?: string | null
+    88→  onOpen?: (id: string) => void
+    89→}) {
+    90→  if (!caseId) return <span className="text-sm text-muted-foreground">—</span>
+    91→  return (
+    92→    <button type="button" onClick={() => onOpen?.(caseId)} className="inline-flex" title="Open case file">
+    93→      <Badge
+    94→        variant="outline"
+    95→        className="cursor-pointer border-emerald-200 bg-emerald-50 text-emerald-700 transition-colors hover:bg-emerald-100"
+    96→      >
+    97→        {caseNumber ?? "Case"}
+    98→      </Badge>
+    99→    </button>
+   100→  )
+   101→}
+   102→
+   103→/* --------------------------- Record payment dialog --------------------------- */
+   104→
+   105→function RecordPaymentDialog({
+   106→  invoice,
+   107→  open,
+   108→  onOpenChange,
+   109→  onSaved,
+   110→}: {
+   111→  invoice: InvoiceDTO | null
+   112→  open: boolean
+   113→  onOpenChange: (open: boolean) => void
+   114→  onSaved: () => void
+   115→}) {
+   116→  const [amount, setAmount] = useState("")
+   117→  const [method, setMethod] = useState<string>(PAYMENT_METHODS[0])
+   118→  const [paymentDate, setPaymentDate] = useState(toDateInputValue(new Date()))
+   119→  const [reference, setReference] = useState("")
+   120→  const [notes, setNotes] = useState("")
+   121→  const [pending, setPending] = useState(false)
+   122→
+   123→  const remaining = invoice ? Math.max(0, num(invoice.amount) - num(invoice.paidAmount)) : 0
+   124→
+   125→  useEffect(() => {
+   126→    if (open && invoice) {
+   127→      setAmount(String(Math.max(0, num(invoice.amount) - num(invoice.paidAmount))))
+   128→      setMethod(PAYMENT_METHODS[0])
+   129→      setPaymentDate(toDateInputValue(new Date()))
+   130→      setReference("")
+   131→      setNotes("")
+   132→    }
+   133→  }, [open, invoice])
+   134→
+   135→  const submit = async () => {
+   136→    if (!invoice) return
+   137→    const amt = Number(amount)
+   138→    if (!Number.isFinite(amt) || amt <= 0) {
+   139→      toast.error("Enter an amount greater than 0.")
+   140→      return
+   141→    }
+   142→    if (amt > remaining + 0.005) {
+   143→      toast.error(`Payment exceeds the remaining due of ${formatCurrency(remaining)}.`)
+   144→      return
+   145→    }
+   146→    setPending(true)
+   147→    try {
+   148→      await apiSend("POST", "/api/payments", {
+   149→        invoiceId: invoice.id,
+   150→        amount: amt,
+   151→        paymentMethod: method,
+   152→        paymentDate: paymentDate || undefined,
+   153→        referenceNumber: reference.trim() || undefined,
+   154→        notes: notes.trim() || undefined,
+   155→      })
+   156→      toast.success("Payment recorded")
+   157→      onSaved()
+   158→      onOpenChange(false)
+   159→    } catch (e) {
+   160→      toast.error(errorMessage(e))
+   161→    } finally {
+   162→      setPending(false)
+   163→    }
+   164→  }
+   165→
+   166→  return (
+   167→    <Dialog open={open} onOpenChange={onOpenChange}>
+   168→      <DialogContent className="sm:max-w-lg">
+   169→        <DialogHeader>
+   170→          <DialogTitle>Record Payment</DialogTitle>
+   171→          <DialogDescription>Record a client payment against this invoice.</DialogDescription>
+   172→        </DialogHeader>
+   173→
+   174→        {invoice ? (
+   175→          <div className="space-y-4">
+   176→            <div className="space-y-1 rounded-lg border border-stone-200/80 bg-stone-50/60 p-3 text-sm">
+   177→              <div className="flex items-center justify-between gap-2">
+   178→                <span className="font-mono font-semibold">{invoice.invoiceNumber}</span>
+   179→                <StatusBadge map={invoiceStatusStyles} value={invoice.status} />
+   180→              </div>
+   181→              <p className="text-muted-foreground">{invoice.clientName}</p>
+   182→              <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground">
+   183→                <span>
+   184→                  Amount: <span className="font-semibold text-foreground">{formatCurrency(invoice.amount)}</span>
+   185→                </span>
+   186→                <span>
+   187→                  Paid: <span className="font-semibold text-foreground">{formatCurrency(invoice.paidAmount)}</span>
+   188→                </span>
+   189→                <span>
+   190→                  Remaining: <span className="font-bold text-emerald-700">{formatCurrency(remaining)}</span>
+   191→                </span>
+   192→              </div>
+   193→            </div>
+   194→
+   195→            <div className="grid gap-4 sm:grid-cols-2">
+   196→              <div className="space-y-2">
+   197→                <Label htmlFor="payment-amount">Amount (৳) *</Label>
+   198→                <Input
+   199→                  id="payment-amount"
+   200→                  type="number"
+   201→                  min="0"
+   202→                  step="0.01"
+   203→                  inputMode="decimal"
+   204→                  value={amount}
+   205→                  onChange={(e) => setAmount(e.target.value)}
+   206→                />
+   207→              </div>
+   208→              <div className="space-y-2">
+   209→                <Label>Payment Method *</Label>
+   210→                <Select value={method} onValueChange={setMethod}>
+   211→                  <SelectTrigger className="w-full">
+   212→                    <SelectValue placeholder="Select method" />
+   213→                  </SelectTrigger>
+   214→                  <SelectContent>
+   215→                    {PAYMENT_METHODS.map((m) => (
+   216→                      <SelectItem key={m} value={m}>
+   217→                        {m}
+   218→                      </SelectItem>
+   219→                    ))}
+   220→                  </SelectContent>
+   221→                </Select>
+   222→              </div>
+   223→              <div className="space-y-2">
+   224→                <Label htmlFor="payment-date">Payment Date</Label>
+   225→                <Input
+   226→                  id="payment-date"
+   227→                  type="date"
+   228→                  value={paymentDate}
+   229→                  onChange={(e) => setPaymentDate(e.target.value)}
+   230→                />
+   231→              </div>
+   232→              <div className="space-y-2">
+   233→                <Label htmlFor="payment-reference">Reference Number</Label>
+   234→                <Input
+   235→                  id="payment-reference"
+   236→                  value={reference}
+   237→                  onChange={(e) => setReference(e.target.value)}
+   238→                  placeholder="bKash TrxID / Bank ref"
+   239→                />
+   240→              </div>
+   241→            </div>
+   242→            <div className="space-y-2">
+   243→              <Label htmlFor="payment-notes">Notes</Label>
+   244→              <Textarea
+   245→                id="payment-notes"
+   246→                rows={2}
+   247→                value={notes}
+   248→                onChange={(e) => setNotes(e.target.value)}
+   249→                placeholder="Optional note about this payment"
+   250→              />
+   251→            </div>
+   252→          </div>
+   253→        ) : null}
+   254→
+   255→        <DialogFooter>
+   256→          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+   257→            Cancel
+   258→          </Button>
+   259→          <Button onClick={() => void submit()} disabled={pending}>
+   260→            {pending ? "Saving…" : "Record Payment"}
+   261→          </Button>
+   262→        </DialogFooter>
+   263→      </DialogContent>
+   264→    </Dialog>
+   265→  )
+   266→}
+   267→
+   268→/* --------------------------- Invoice details dialog --------------------------- */
+   269→
+   270→function InvoiceDetailsDialog({
+   271→  invoice,
+   272→  open,
+   273→  onOpenChange,
+   274→  navigate,
+   275→}: {
+   276→  invoice: InvoiceDTO | null
+   277→  open: boolean
+   278→  onOpenChange: (open: boolean) => void
+   279→  navigate: NavigateFn
+   280→}) {
+   281→  const inv = invoice
+   282→  const paid = num(inv?.paidAmount)
+   283→  const amount = num(inv?.amount)
+   284→  const percent = amount > 0 ? Math.min(100, Math.round((paid / amount) * 100)) : 0
+   285→  const payments = inv?.payments ?? []
+   286→
+   287→  return (
+   288→    <Dialog open={open} onOpenChange={onOpenChange}>
+   289→      <DialogContent className="sm:max-w-2xl">
+   290→        <DialogHeader>
+   291→          <DialogTitle className="font-mono">{inv?.invoiceNumber ?? "Invoice"}</DialogTitle>
+   292→          <DialogDescription>Invoice details & payment history.</DialogDescription>
+   293→        </DialogHeader>
+   294→
+   295→        {inv ? (
+   296→          <div className="space-y-5">
+   297→            <div className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+   298→              <div>
+   299→                <p className="text-xs text-muted-foreground">Client</p>
+   300→                <p className="font-medium">{inv.clientName}</p>
+   301→              </div>
+   302→              <div>
+   303→                <p className="text-xs text-muted-foreground">Case</p>
+   304→                <CaseChip
+   305→                  caseId={inv.caseId}
+   306→                  caseNumber={inv.caseNumber}
+   307→                  onOpen={(id) => navigate("case-detail", { id })}
+   308→                />
+   309→              </div>
+   310→              <div>
+   311→                <p className="text-xs text-muted-foreground">Billing Type</p>
+   312→                <p className="font-medium">{inv.billingType ?? "—"}</p>
+   313→              </div>
+   314→              <div>
+   315→                <p className="text-xs text-muted-foreground">Status</p>
+   316→                <StatusBadge map={invoiceStatusStyles} value={inv.status} />
+   317→              </div>
+   318→              <div>
+   319→                <p className="text-xs text-muted-foreground">Amount</p>
+   320→                <p className="font-bold">{formatCurrency(amount)}</p>
+   321→              </div>
+   322→              <div>
+   323→                <p className="text-xs text-muted-foreground">Due Date</p>
+   324→                <p className={cn("font-medium", inv.status === "OVERDUE" && "text-rose-600")}>
+   325→                  {formatDate(inv.dueDate)}
+   326→                </p>
+   327→              </div>
+   328→              {inv.description ? (
+   329→                <div className="sm:col-span-2">
+   330→                  <p className="text-xs text-muted-foreground">Description</p>
+   331→                  <p className="whitespace-pre-wrap text-sm">{inv.description}</p>
+   332→                </div>
+   333→              ) : null}
+   334→            </div>
+   335→
+   336→            <div className="space-y-2 rounded-lg border border-stone-200/80 bg-stone-50/60 p-4">
+   337→              <div className="flex items-center justify-between gap-2 text-sm">
+   338→                <span className="font-medium">
+   339→                  Paid {formatCurrency(paid)} of {formatCurrency(amount)}
+   340→                </span>
+   341→                <span className="text-muted-foreground">{percent}%</span>
+   342→              </div>
+   343→              <Progress value={percent} />
+   344→            </div>
+   345→
+   346→            <div>
+   347→              <p className="mb-2 text-sm font-semibold">Payments</p>
+   348→              {payments.length === 0 ? (
+   349→                <p className="rounded-lg border border-dashed border-stone-200 py-6 text-center text-sm text-muted-foreground">
+   350→                  No payments recorded yet.
+   351→                </p>
+   352→              ) : (
+   353→                <div className="overflow-hidden rounded-lg border border-stone-200/80">
+   354→                  <Table>
+   355→                    <TableHeader>
+   356→                      <TableRow className="hover:bg-transparent">
+   357→                        <TableHead>Date</TableHead>
+   358→                        <TableHead>Method</TableHead>
+   359→                        <TableHead className="text-right">Amount</TableHead>
+   360→                        <TableHead>Reference</TableHead>
+   361→                        <TableHead>Received By</TableHead>
+   362→                      </TableRow>
+   363→                    </TableHeader>
+   364→                    <TableBody>
+   365→                      {payments.map((p) => (
+   366→                        <TableRow key={p.id}>
+   367→                          <TableCell>{formatDate(p.paymentDate)}</TableCell>
+   368→                          <TableCell>{p.paymentMethod}</TableCell>
+   369→                          <TableCell className="text-right font-semibold text-emerald-700">
+   370→                            {formatCurrency(p.amount)}
+   371→                          </TableCell>
+   372→                          <TableCell className="max-w-[140px] truncate text-muted-foreground">
+   373→                            {p.referenceNumber || "—"}
+   374→                          </TableCell>
+   375→                          <TableCell className="text-muted-foreground">{p.receivedByName ?? "—"}</TableCell>
+   376→                        </TableRow>
+   377→                      ))}
+   378→                    </TableBody>
+   379→                  </Table>
+   380→                </div>
+   381→              )}
+   382→            </div>
+   383→          </div>
+   384→        ) : null}
+   385→      </DialogContent>
+   386→    </Dialog>
+   387→  )
+   388→}
+   389→
+   390→/* ------------------------------ New invoice dialog ------------------------------ */
+   391→
+   392→function NewInvoiceDialog({
+   393→  open,
+   394→  onOpenChange,
+   395→  onSaved,
+   396→  requireCase = false,
+   397→}: {
+   398→  open: boolean
+   399→  onOpenChange: (open: boolean) => void
+   400→  onSaved: () => void
+   401→  /** Lawyers must attach the invoice to one of their own cases (server-enforced too). */
+   402→  requireCase?: boolean
+   403→}) {
+   404→  const clientsQ = useApiData<ClientDTO[]>(open ? "/api/clients" : null)
+   405→  const casesQ = useApiData<CaseListDTO[]>(open ? "/api/cases" : null)
+   406→
+   407→  const [clientId, setClientId] = useState("")
+   408→  const [caseId, setCaseId] = useState(NO_CASE)
+   409→  const [billingType, setBillingType] = useState<string>(BILLING_TYPES[0])
+   410→  const [description, setDescription] = useState("")
+   411→  const [amount, setAmount] = useState("")
+   412→  const [dueDate, setDueDate] = useState("")
+   413→  const [pending, setPending] = useState(false)
+   414→
+   415→  useEffect(() => {
+   416→    if (open) {
+   417→      setClientId("")
+   418→      setCaseId(NO_CASE)
+   419→      setBillingType(BILLING_TYPES[0])
+   420→      setDescription("")
+   421→      setAmount("")
+   422→      setDueDate("")
+   423→    }
+   424→  }, [open])
+   425→
+   426→  const onCaseChange = (value: string) => {
+   427→    setCaseId(value)
+   428→    if (value !== NO_CASE && casesQ.data) {
+   429→      const kase = casesQ.data.find((c) => c.id === value)
+   430→      if (kase?.client?.id) setClientId(kase.client.id)
+   431→    }
+   432→  }
+   433→
+   434→  const submit = async () => {
+   435→    if (!clientId) {
+   436→      toast.error("Please select a client.")
+   437→      return
+   438→    }
+   439→    if (requireCase && (!caseId || caseId === NO_CASE)) {
+   440→      toast.error("Please select a case for this invoice.")
+   441→      return
+   442→    }
+   443→    const amt = Number(amount)
+   444→    if (!Number.isFinite(amt) || amt <= 0) {
+   445→      toast.error("Amount must be greater than 0.")
+   446→      return
+   447→    }
+   448→    setPending(true)
+   449→    try {
+   450→      await apiSend("POST", "/api/invoices", {
+   451→        clientId,
+   452→        caseId: caseId !== NO_CASE && caseId ? caseId : undefined,
+   453→        billingType,
+   454→        description: description.trim() || undefined,
+   455→        amount: amt,
+   456→        dueDate: dueDate || undefined,
+   457→      })
+   458→      toast.success("Invoice created")
+   459→      onSaved()
+   460→      onOpenChange(false)
+   461→    } catch (e) {
+   462→      toast.error(errorMessage(e))
+   463→    } finally {
+   464→      setPending(false)
+   465→    }
+   466→  }
+   467→
+   468→  return (
+   469→    <Dialog open={open} onOpenChange={onOpenChange}>
+   470→      <DialogContent className="sm:max-w-lg">
+   471→        <DialogHeader>
+   472→          <DialogTitle>New Invoice</DialogTitle>
+   473→          <DialogDescription>Issue a new invoice to a client.</DialogDescription>
+   474→        </DialogHeader>
+   475→
+   476→        <div className="space-y-4">
+   477→          <div className="space-y-2">
+   478→            <Label>Client *</Label>
+   479→            <Select value={clientId || undefined} onValueChange={setClientId}>
+   480→              <SelectTrigger className="w-full">
+   481→                <SelectValue placeholder={clientsQ.loading ? "Loading clients…" : "Select client"} />
+   482→              </SelectTrigger>
+   483→              <SelectContent>
+   484→                {(clientsQ.data ?? []).map((c) => (
+   485→                  <SelectItem key={c.id} value={c.id}>
+   486→                    {c.name}
+   487→                  </SelectItem>
+   488→                ))}
+   489→              </SelectContent>
+   490→            </Select>
+   491→          </div>
+   492→
+   493→          <div className="space-y-2">
+   494→            <Label>Case (optional)</Label>
+   495→            <Select value={caseId} onValueChange={onCaseChange}>
+   496→              <SelectTrigger className="w-full">
+   497→                <SelectValue placeholder={casesQ.loading ? "Loading cases…" : "No case"} />
+   498→              </SelectTrigger>
+   499→              <SelectContent>
+   500→                <SelectItem value={NO_CASE}>No case (unlinked)</SelectItem>
+   501→                {(casesQ.data ?? []).map((c) => (
+   502→                  <SelectItem key={c.id} value={c.id}>
+   503→                    {c.caseNumber} — {c.title}
+   504→                  </SelectItem>
+   505→                ))}
+   506→              </SelectContent>
+   507→            </Select>
+   508→            <p className="text-xs text-muted-foreground">Choosing a case auto-selects its client.</p>
+   509→          </div>
+   510→
+   511→          <div className="grid gap-4 sm:grid-cols-2">
+   512→            <div className="space-y-2">
+   513→              <Label>Billing Type</Label>
+   514→              <Select value={billingType} onValueChange={setBillingType}>
+   515→                <SelectTrigger className="w-full">
+   516→                  <SelectValue />
+   517→                </SelectTrigger>
+   518→                <SelectContent>
+   519→                  {BILLING_TYPES.map((t) => (
+   520→                    <SelectItem key={t} value={t}>
+   521→                      {t}
+   522→                    </SelectItem>
+   523→                  ))}
+   524→                </SelectContent>
+   525→              </Select>
+   526→            </div>
+   527→            <div className="space-y-2">
+   528→              <Label htmlFor="invoice-amount">Amount (৳) *</Label>
+   529→              <Input
+   530→                id="invoice-amount"
+   531→                type="number"
+   532→                min="0"
+   533→                step="0.01"
+   534→                inputMode="decimal"
+   535→                value={amount}
+   536→                onChange={(e) => setAmount(e.target.value)}
+   537→                placeholder="0"
+   538→              />
+   539→            </div>
+   540→          </div>
+   541→
+   542→          <div className="space-y-2">
+   543→            <Label htmlFor="invoice-due">Due Date</Label>
+   544→            <Input id="invoice-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+   545→          </div>
+   546→
+   547→          <div className="space-y-2">
+   548→            <Label htmlFor="invoice-description">Description</Label>
+   549→            <Textarea
+   550→              id="invoice-description"
+   551→              rows={2}
+   552→              value={description}
+   553→              onChange={(e) => setDescription(e.target.value)}
+   554→              placeholder="What this invoice covers"
+   555→            />
+   556→          </div>
+   557→        </div>
+   558→
+   559→        <DialogFooter>
+   560→          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+   561→            Cancel
+   562→          </Button>
+   563→          <Button onClick={() => void submit()} disabled={pending}>
+   564→            {pending ? "Creating…" : "Create Invoice"}
+   565→          </Button>
+   566→        </DialogFooter>
+   567→      </DialogContent>
+   568→    </Dialog>
+   569→  )
+   570→}
+   571→
+   572→/* ------------------------------ Invoices tab ------------------------------ */
+   573→
+   574→function InvoicesTab({
+   575→  invoices,
+   576→  loading,
+   577→  error,
+   578→  canManage,
+   579→  isAdmin,
+   580→  isClient,
+   581→  navigate,
+   582→  onRecordPayment,
+   583→  onViewDetails,
+   584→  onCancel,
+   585→  onDelete,
+   586→  onRetry,
+   587→}: {
+   588→  invoices: InvoiceDTO[] | null
+   589→  loading: boolean
+   590→  error: string | null
+   591→  canManage: boolean
+   592→  isAdmin: boolean
+   593→  isClient: boolean
+   594→  navigate: NavigateFn
+   595→  onRecordPayment: (inv: InvoiceDTO) => void
+   596→  onViewDetails: (inv: InvoiceDTO) => void
+   597→  onCancel: (inv: InvoiceDTO) => void
+   598→  onDelete: (inv: InvoiceDTO) => void
+   599→  onRetry: () => void
+   600→}) {
+   601→  const [status, setStatus] = useState(ALL)
+   602→  const [search, setSearch] = useState("")
+   603→
+   604→  const list = invoices ?? []
+   605→  const active = useMemo(() => list.filter((i) => i.status !== "CANCELLED"), [list])
+   606→  const totalInvoiced = active.reduce((s, i) => s + num(i.amount), 0)
+   607→  const totalCollected = active.reduce((s, i) => s + num(i.paidAmount), 0)
+   608→  const outstanding = active.reduce((s, i) => s + (num(i.amount) - num(i.paidAmount)), 0)
+   609→
+   610→  const filtered = useMemo(() => {
+   611→    let rows = list
+   612→    if (status !== ALL) rows = rows.filter((i) => i.status === status)
+   613→    const q = search.trim().toLowerCase()
+   614→    if (q) {
+   615→      rows = rows.filter(
+   616→        (i) => i.invoiceNumber.toLowerCase().includes(q) || i.clientName.toLowerCase().includes(q)
+   617→      )
+   618→    }
+   619→    return rows
+   620→  }, [list, status, search])
+   621→
+   622→  if (loading && !invoices) return <LoadingBlock rows={6} />
+   623→
+   624→  if (error && !invoices) {
+   625→    return (
+   626→      <EmptyState
+   627→        icon={AlertTriangle}
+   628→        title="Could not load invoices"
+   629→        description={error}
+   630→        action={
+   631→          <Button variant="outline" size="sm" onClick={onRetry}>
+   632→            Try again
+   633→          </Button>
+   634→        }
+   635→      />
+   636→    )
+   637→  }
+   638→
+   639→  return (
+   640→    <div className="space-y-4">
+   641→      {/* Summary strip */}
+   642→      {isClient ? (
+   643→        <StatCard icon={Wallet} label="Outstanding Balance" value={formatCurrency(Math.max(0, outstanding))} tone="rose" />
+   644→      ) : (
+   645→        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+   646→          <StatCard
+   647→            icon={Wallet}
+   648→            label="Total Invoiced"
+   649→            value={formatCurrency(totalInvoiced)}
+   650→            sub={`${active.length} active invoices`}
+   651→            tone="emerald"
+   652→          />
+   653→          <StatCard
+   654→            icon={Banknote}
+   655→            label="Total Collected"
+   656→            value={formatCurrency(totalCollected)}
+   657→            sub={`${list.filter((i) => i.status === "PAID").length} fully paid`}
+   658→            tone="teal"
+   659→          />
+   660→          <StatCard
+   661→            icon={TrendingUp}
+   662→            label="Outstanding"
+   663→            value={formatCurrency(Math.max(0, outstanding))}
+   664→            sub="Unpaid & partial balances"
+   665→            tone="rose"
+   666→          />
+   667→        </div>
+   668→      )}
+   669→
+   670→      {/* Toolbar */}
+   671→      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+   672→        <div className="relative flex-1">
+   673→          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+   674→          <Input
+   675→            value={search}
+   676→            onChange={(e) => setSearch(e.target.value)}
+   677→            placeholder="Search invoice number or client…"
+   678→            aria-label="Search invoices"
+   679→            className="pl-8"
+   680→          />
+   681→        </div>
+   682→        <Select value={status} onValueChange={setStatus}>
+   683→          <SelectTrigger className="w-full sm:w-44">
+   684→            <SelectValue placeholder="All statuses" />
+   685→          </SelectTrigger>
+   686→          <SelectContent>
+   687→            <SelectItem value={ALL}>All statuses</SelectItem>
+   688→            {INVOICE_STATUSES.map((s) => (
+   689→              <SelectItem key={s} value={s}>
+   690→                {INVOICE_STATUS_LABELS[s]}
+   691→              </SelectItem>
+   692→            ))}
+   693→          </SelectContent>
+   694→        </Select>
+   695→      </div>
+   696→
+   697→      {/* Table */}
+   698→      <div className="overflow-hidden rounded-xl border border-stone-200/80 bg-white shadow-sm">
+   699→        {filtered.length === 0 ? (
+   700→          <div className="p-6">
+   701→            <EmptyState
+   702→              icon={Receipt}
+   703→              title={list.length === 0 ? "No invoices yet" : "No invoices match your filters"}
+   704→              description={
+   705→                list.length === 0
+   706→                  ? "Invoices you create will appear here."
+   707→                  : "Try a different search term or status filter."
+   708→              }
+   709→            />
+   710→          </div>
+   711→        ) : (
+   712→          <Table>
+   713→            <TableHeader>
+   714→              <TableRow className="hover:bg-transparent">
+   715→                <TableHead>Invoice</TableHead>
+   716→                <TableHead>Case</TableHead>
+   717→                <TableHead>Client</TableHead>
+   718→                <TableHead>Type</TableHead>
+   719→                <TableHead className="text-right">Amount</TableHead>
+   720→                <TableHead className="text-right">Paid</TableHead>
+   721→                <TableHead>Due</TableHead>
+   722→                <TableHead>Status</TableHead>
+   723→                {canManage ? <TableHead className="w-12" /> : null}
+   724→              </TableRow>
+   725→            </TableHeader>
+   726→            <TableBody>
+   727→              {filtered.map((inv) => {
+   728→                const payments = inv.payments ?? []
+   729→                const canCancel = inv.status !== "CANCELLED" && inv.status !== "PAID"
+   730→                const canDelete = payments.length === 0
+   731→                return (
+   732→                  <TableRow key={inv.id}>
+   733→                    <TableCell className="font-mono font-semibold">{inv.invoiceNumber}</TableCell>
+   734→                    <TableCell>
+   735→                      <CaseChip
+   736→                        caseId={inv.caseId}
+   737→                        caseNumber={inv.caseNumber}
+   738→                        onOpen={(id) => navigate("case-detail", { id })}
+   739→                      />
+   740→                    </TableCell>
+   741→                    <TableCell className="max-w-[180px] truncate">{inv.clientName}</TableCell>
+   742→                    <TableCell className="text-muted-foreground">{inv.billingType ?? "—"}</TableCell>
+   743→                    <TableCell className="text-right font-bold">{formatCurrency(inv.amount)}</TableCell>
+   744→                    <TableCell className="text-right">{formatCurrency(inv.paidAmount)}</TableCell>
+   745→                    <TableCell>
+   746→                      <span className={cn(inv.status === "OVERDUE" && "font-medium text-rose-600")}>
+   747→                        {formatDate(inv.dueDate)}
+   748→                      </span>
+   749→                    </TableCell>
+   750→                    <TableCell>
+   751→                      <StatusBadge map={invoiceStatusStyles} value={inv.status} />
+   752→                    </TableCell>
+   753→                    {canManage ? (
+   754→                      <TableCell className="text-right">
+   755→                        <DropdownMenu>
+   756→                          <DropdownMenuTrigger asChild>
+   757→                            <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Invoice actions">
+   758→                              <MoreHorizontal className="h-4 w-4" />
+   759→                            </Button>
+   760→                          </DropdownMenuTrigger>
+   761→                          <DropdownMenuContent align="end" className="w-48">
+   762→                            {inv.status !== "PAID" && inv.status !== "CANCELLED" ? (
+   763→                              <DropdownMenuItem onSelect={() => onRecordPayment(inv)}>
+   764→                                <Banknote className="h-4 w-4" /> Record Payment
+   765→                              </DropdownMenuItem>
+   766→                            ) : null}
+   767→                            <DropdownMenuItem onSelect={() => onViewDetails(inv)}>
+   768→                              <Eye className="h-4 w-4" /> View Details
+   769→                            </DropdownMenuItem>
+   770→                            {canCancel || (canDelete && isAdmin) ? <DropdownMenuSeparator /> : null}
+   771→                            {canCancel ? (
+   772→                              <DropdownMenuItem onSelect={() => onCancel(inv)}>
+   773→                                <Ban className="h-4 w-4" /> Cancel Invoice
+   774→                              </DropdownMenuItem>
+   775→                            ) : null}
+   776→                            {canDelete && isAdmin ? (
+   777→                              <DropdownMenuItem
+   778→                                className="text-rose-600 focus:text-rose-600"
+   779→                                onSelect={() => onDelete(inv)}
+   780→                              >
+   781→                                <Trash2 className="h-4 w-4" /> Delete Invoice
+   782→                              </DropdownMenuItem>
+   783→                            ) : null}
+   784→                          </DropdownMenuContent>
+   785→                        </DropdownMenu>
+   786→                      </TableCell>
+   787→                    ) : null}
+   788→                  </TableRow>
+   789→                )
+   790→              })}
+   791→            </TableBody>
+   792→          </Table>
+   793→        )}
+   794→      </div>
+   795→
+   796→      {isClient ? (
+   797→        <p className="text-xs text-muted-foreground">Contact your chamber for payment receipts.</p>
+   798→      ) : null}
+   799→    </div>
+   800→  )
+   801→}
+   802→
+   803→/* ------------------------------ Payments tab ------------------------------ */
+   804→
+   805→const METHOD_META: Record<string, { icon: LucideIcon; className: string }> = {
+   806→  Cash: { icon: Banknote, className: "border-stone-200 bg-stone-50 text-stone-700" },
+   807→  "Bank Transfer": { icon: Landmark, className: "border-teal-200 bg-teal-50 text-teal-700" },
+   808→  bKash: { icon: Smartphone, className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+   809→  Nagad: { icon: Smartphone, className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+   810→  Rocket: { icon: Smartphone, className: "border-emerald-200 bg-emerald-50 text-emerald-700" },
+   811→}
+   812→
+   813→function MethodChip({ method }: { method: string }) {
+   814→  const meta = METHOD_META[method] ?? METHOD_META.Cash
+   815→  const Icon = meta.icon
+   816→  return (
+   817→    <Badge variant="outline" className={cn("gap-1 border", meta.className)}>
+   818→      <Icon className="h-3 w-3" />
+   819→      {method}
+   820→    </Badge>
+   821→  )
+   822→}
+   823→
+   824→function PaymentsTab({
+   825→  payments,
+   826→  loading,
+   827→  error,
+   828→  isClient,
+   829→  isAdmin,
+   830→  onDeletePayment,
+   831→  onRetry,
+   832→}: {
+   833→  payments: PaymentDTO[] | null
+   834→  loading: boolean
+   835→  error: string | null
+   836→  isClient: boolean
+   837→  isAdmin: boolean
+   838→  onDeletePayment: (p: PaymentDTO) => void
+   839→  onRetry: () => void
+   840→}) {
+   841→  const [method, setMethod] = useState(ALL)
+   842→
+   843→  const list = payments ?? []
+   844→  const filtered = useMemo(
+   845→    () => (method === ALL ? list : list.filter((p) => p.paymentMethod === method)),
+   846→    [list, method]
+   847→  )
+   848→
+   849→  if (loading && !payments) return <LoadingBlock rows={6} />
+   850→
+   851→  if (error && !payments) {
+   852→    return (
+   853→      <EmptyState
+   854→        icon={AlertTriangle}
+   855→        title="Could not load payments"
+   856→        description={error}
+   857→        action={
+   858→          <Button variant="outline" size="sm" onClick={onRetry}>
+   859→            Try again
+   860→          </Button>
+   861→        }
+   862→      />
+   863→    )
+   864→  }
+   865→
+   866→  return (
+   867→    <div className="space-y-4">
+   868→      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+   869→        <Select value={method} onValueChange={setMethod}>
+   870→          <SelectTrigger className="w-full sm:w-44">
+   871→            <SelectValue placeholder="All methods" />
+   872→          </SelectTrigger>
+   873→          <SelectContent>
+   874→            <SelectItem value={ALL}>All methods</SelectItem>
+   875→            {PAYMENT_METHODS.map((m) => (
+   876→              <SelectItem key={m} value={m}>
+   877→                {m}
+   878→              </SelectItem>
+   879→            ))}
+   880→          </SelectContent>
+   881→        </Select>
+   882→      </div>
+   883→
+   884→      <div className="overflow-hidden rounded-xl border border-stone-200/80 bg-white shadow-sm">
+   885→        {filtered.length === 0 ? (
+   886→          <div className="p-6">
+   887→            <EmptyState
+   888→              icon={Banknote}
+   889→              title={list.length === 0 ? "No payments yet" : "No payments match this filter"}
+   890→              description={
+   891→                list.length === 0
+   892→                  ? "Payments recorded against invoices will appear here."
+   893→                  : "Try a different payment method."
+   894→              }
+   895→            />
+   896→          </div>
+   897→        ) : (
+   898→          <Table>
+   899→            <TableHeader>
+   900→              <TableRow className="hover:bg-transparent">
+   901→                <TableHead>Date</TableHead>
+   902→                <TableHead>Invoice</TableHead>
+   903→                <TableHead>Case</TableHead>
+   904→                <TableHead>Client</TableHead>
+   905→                <TableHead className="text-right">Amount</TableHead>
+   906→                <TableHead>Method</TableHead>
+   907→                <TableHead>Reference</TableHead>
+   908→                <TableHead>Received By</TableHead>
+   909→                {isAdmin ? <TableHead className="w-12" /> : null}
+   910→              </TableRow>
+   911→            </TableHeader>
+   912→            <TableBody>
+   913→              {filtered.map((p) => (
+   914→                <TableRow key={p.id}>
+   915→                  <TableCell>{formatDate(p.paymentDate)}</TableCell>
+   916→                  <TableCell className="font-mono font-medium">{p.invoiceNumber ?? "—"}</TableCell>
+   917→                  <TableCell>
+   918→                    {p.caseNumber ? (
+   919→                      <Badge variant="outline" className="border-stone-200 bg-stone-50 text-stone-600">
+   920→                        {p.caseNumber}
+   921→                      </Badge>
+   922→                    ) : (
+   923→                      <span className="text-muted-foreground">—</span>
+   924→                    )}
+   925→                  </TableCell>
+   926→                  <TableCell className="max-w-[180px] truncate">{p.clientName ?? "—"}</TableCell>
+   927→                  <TableCell className="text-right font-bold text-emerald-700">
+   928→                    {formatCurrency(p.amount)}
+   929→                  </TableCell>
+   930→                  <TableCell>
+   931→                    <MethodChip method={p.paymentMethod} />
+   932→                  </TableCell>
+   933→                  <TableCell className="max-w-[140px] truncate text-muted-foreground">
+   934→                    {p.referenceNumber || "—"}
+   935→                  </TableCell>
+   936→                  <TableCell className="text-muted-foreground">{p.receivedByName ?? "—"}</TableCell>
+   937→                  {isAdmin ? (
+   938→                    <TableCell className="text-right">
+   939→                      <Button
+   940→                        variant="ghost"
+   941→                        size="icon"
+   942→                        className="h-8 w-8 text-rose-600 hover:text-rose-700"
+   943→                        aria-label={`Delete payment of ${formatCurrency(p.amount)} on invoice ${p.invoiceNumber ?? ""}`}
+   944→                        onClick={() => onDeletePayment(p)}
+   945→                      >
+   946→                        <Trash2 className="h-4 w-4" />
+   947→                      </Button>
+   948→                    </TableCell>
+   949→                  ) : null}
+   950→                </TableRow>
+   951→              ))}
+   952→            </TableBody>
+   953→          </Table>
+   954→        )}
+   955→      </div>
+   956→
+   957→      {isClient ? (
+   958→        <p className="text-xs text-muted-foreground">Contact your chamber for payment receipts.</p>
+   959→      ) : null}
+   960→    </div>
+   961→  )
+   962→}
+   963→
+   964→/* --------------------------------- View --------------------------------- */
+   965→
+   966→export default function BillingView({ user, navigate, params }: ViewProps) {
+   967→  const isStaff = user.role === "STAFF"
+   968→  const isAdmin = user.role === "ADMIN"
+   969→  const isLawyer = user.role === "LAWYER"
+   970→  const isClient = user.role === "CLIENT"
+   971→  // ADMIN + LAWYER manage billing (per PRD); STAFF/CLIENT are read-only.
+   972→  const canManage = isAdmin || isLawyer
+   973→
+   974→  // Tab is fully driven by params so the sidebar Invoices/Payments entries and
+   975→  // the in-view Tabs stay in sync (no stale local override).
+   976→  const tab: "invoices" | "payments" = params.tab === "payments" ? "payments" : "invoices"
+   977→  const [payFor, setPayFor] = useState<InvoiceDTO | null>(null)
+   978→  const [detailsFor, setDetailsFor] = useState<InvoiceDTO | null>(null)
+   979→  const [cancelFor, setCancelFor] = useState<InvoiceDTO | null>(null)
+   980→  const [deleteFor, setDeleteFor] = useState<InvoiceDTO | null>(null)
+   981→  const [deletePaymentFor, setDeletePaymentFor] = useState<PaymentDTO | null>(null)
+   982→  const [newOpen, setNewOpen] = useState(false)
+   983→
+   984→  // STAFF: no financial access — keep fetches idle (null path) and show a guard.
+   985→  const invoicesQ = useApiData<InvoiceDTO[]>(isStaff ? null : "/api/invoices")
+   986→  const paymentsQ = useApiData<PaymentDTO[]>(isStaff ? null : "/api/payments")
+   987→
+   988→  if (isStaff) {
+   989→    return (
+   990→      <div className="space-y-6">
+   991→        <PageHeader title="Billing & Invoices" description="Invoices, payments and collections" />
+   992→        <EmptyState
+   993→          icon={ShieldAlert}
+   994→          title="Financial data is restricted"
+   995→          description="Staff accounts do not have access to billing, invoices or payments."
+   996→        />
+   997→      </div>
+   998→    )
+   999→  }
+  1000→
+  1001→  const refetchInvoices = () => invoicesQ.refetch()
+  1002→  const refetchBoth = () => {
+  1003→    invoicesQ.refetch()
+  1004→    paymentsQ.refetch()
+  1005→  }
+  1006→
+  1007→  const changeTab = (value: string) => {
+  1008→    const next = value === "payments" ? "payments" : "invoices"
+  1009→    navigate("billing", { tab: next }) // single source of truth — keeps sidebar in sync
+  1010→  }
+  1011→
+  1012→  const cancelInvoice = async () => {
+  1013→    if (!cancelFor) return
+  1014→    await apiSend("PATCH", `/api/invoices/${cancelFor.id}`, { status: "CANCELLED" })
+  1015→    toast.success("Invoice cancelled")
+  1016→    refetchInvoices()
+  1017→  }
+  1018→
+  1019→  const deleteInvoice = async () => {
+  1020→    if (!deleteFor) return
+  1021→    await apiSend("DELETE", `/api/invoices/${deleteFor.id}`)
+  1022→    toast.success("Invoice deleted")
+  1023→    refetchInvoices()
+  1024→  }
+  1025→
+  1026→  const deletePayment = async () => {
+  1027→    if (!deletePaymentFor) return
+  1028→    await apiSend<{ ok: boolean; invoiceStatus: string }>(
+  1029→      "DELETE",
+  1030→      `/api/payments/${deletePaymentFor.id}`
+  1031→    )
+  1032→    toast.success(
+  1033→      `Payment of ${formatCurrency(deletePaymentFor.amount)} removed — invoice status updated.`
+  1034→    )
+  1035→    refetchBoth()
+  1036→  }
+  1037→
+  1038→  return (
+  1039→    <div className="space-y-6">
+  1040→      <PageHeader
+  1041→        title="Billing & Invoices"
+  1042→        description="Invoices, payments & collections — bKash / Nagad / Rocket supported"
+  1043→      >
+  1044→        {canManage ? (
+  1045→          <Button onClick={() => setNewOpen(true)}>
+  1046→            <Plus className="h-4 w-4" /> New Invoice
+  1047→          </Button>
+  1048→        ) : null}
+  1049→      </PageHeader>
+  1050→
+  1051→      <Tabs value={tab} onValueChange={changeTab}>
+  1052→        <TabsList>
+  1053→          <TabsTrigger value="invoices">Invoices</TabsTrigger>
+  1054→          <TabsTrigger value="payments">Payments</TabsTrigger>
+  1055→        </TabsList>
+  1056→        <TabsContent value="invoices" className="mt-4">
+  1057→          <InvoicesTab
+  1058→            invoices={invoicesQ.data}
+  1059→            loading={invoicesQ.loading}
+  1060→            error={invoicesQ.error}
+  1061→            canManage={canManage}
+  1062→            isAdmin={isAdmin}
+  1063→            isClient={isClient}
+  1064→            navigate={navigate}
+  1065→            onRecordPayment={setPayFor}
+  1066→            onViewDetails={setDetailsFor}
+  1067→            onCancel={setCancelFor}
+  1068→            onDelete={setDeleteFor}
+  1069→            onRetry={refetchInvoices}
+  1070→          />
+  1071→        </TabsContent>
+  1072→        <TabsContent value="payments" className="mt-4">
+  1073→          <PaymentsTab
+  1074→            payments={paymentsQ.data}
+  1075→            loading={paymentsQ.loading}
+  1076→            error={paymentsQ.error}
+  1077→            isClient={isClient}
+  1078→            isAdmin={isAdmin}
+  1079→            onDeletePayment={setDeletePaymentFor}
+  1080→            onRetry={paymentsQ.refetch}
+  1081→          />
+  1082→        </TabsContent>
+  1083→      </Tabs>
+  1084→
+  1085→      <RecordPaymentDialog
+  1086→        invoice={payFor}
+  1087→        open={!!payFor}
+  1088→        onOpenChange={(o) => {
+  1089→          if (!o) setPayFor(null)
+  1090→        }}
+  1091→        onSaved={refetchBoth}
+  1092→      />
+  1093→      <InvoiceDetailsDialog
+  1094→        invoice={detailsFor}
+  1095→        open={!!detailsFor}
+  1096→        onOpenChange={(o) => {
+  1097→          if (!o) setDetailsFor(null)
+  1098→        }}
+  1099→        navigate={navigate}
+  1100→      />
+  1101→      <NewInvoiceDialog
+  1102→        open={newOpen}
+  1103→        onOpenChange={setNewOpen}
+  1104→        onSaved={refetchBoth}
+  1105→        requireCase={isLawyer}
+  1106→      />
+  1107→
+  1108→      <ConfirmDialog
+  1109→        open={!!cancelFor}
+  1110→        onOpenChange={(o) => {
+  1111→          if (!o) setCancelFor(null)
+  1112→        }}
+  1113→        title="Cancel this invoice?"
+  1114→        description={
+  1115→          cancelFor
+  1116→            ? `Invoice ${cancelFor.invoiceNumber} for ${cancelFor.clientName} will be marked as cancelled and excluded from outstanding totals.`
+  1117→            : undefined
+  1118→        }
+  1119→        confirmLabel="Cancel Invoice"
+  1120→        onConfirm={cancelInvoice}
+  1121→      />
+  1122→      <ConfirmDialog
+  1123→        open={!!deleteFor}
+  1124→        onOpenChange={(o) => {
+  1125→          if (!o) setDeleteFor(null)
+  1126→        }}
+  1127→        title="Delete this invoice?"
+  1128→        description={
+  1129→          deleteFor
+  1130→            ? `Invoice ${deleteFor.invoiceNumber} will be permanently deleted. This action cannot be undone.`
+  1131→            : undefined
+  1132→        }
+  1133→        confirmLabel="Delete"
+  1134→        destructive
+  1135→        onConfirm={deleteInvoice}
+  1136→      />
+  1137→      <ConfirmDialog
+  1138→        open={!!deletePaymentFor}
+  1139→        onOpenChange={(o) => {
+  1140→          if (!o) setDeletePaymentFor(null)
+  1141→        }}
+  1142→        title="Delete this payment record?"
+  1143→        description={
+  1144→          deletePaymentFor
+  1145→            ? `The ${formatCurrency(deletePaymentFor.amount)} payment on invoice ${
+  1146→                deletePaymentFor.invoiceNumber ?? ""
+  1147→              } will be removed and the invoice balance restored. This action cannot be undone.`
+  1148→            : undefined
+  1149→        }
+  1150→        confirmLabel="Delete Payment"
+  1151→        destructive
+  1152→        onConfirm={deletePayment}
+  1153→      />
+  1154→    </div>
+  1155→  )
+  1156→}
+  1157→

@@ -1,3 +1,142 @@
+     1→# AinSheba — Legal Case Management System (Bangladesh MVP) — Worklog
+     2→
+     3→Single source of truth for all agents. Every agent MUST read this file before working and append its section after finishing.
+     4→
+     5→## Project Overview
+     6→- Web-based legal case management for law firms/chambers in Bangladesh.
+     7→- Brand: **AinSheba (আইনসেবা)** — tagline "Legal Case Management — Bangladesh".
+     8→- Stack: Next.js 16 App Router + TypeScript + Tailwind 4 + shadcn/ui (New York), Prisma + SQLite (`db/custom.db`), JWT session cookie auth (jose), local file uploads (`uploads/` folder).
+     9→- Currency: BDT ৳ (format with `formatCurrency` from `@/lib/utils`).
+    10→- Timezone: **Asia/Dhaka** everywhere (use `@/lib/dates` helpers + formatters in `@/lib/utils`).
+    11→
+    12→## CRITICAL ARCHITECTURE RULES
+    13→1. **The user can ONLY see the `/` route.** The whole app is a client-side SPA inside `src/app/page.tsx`. NO other page routes are allowed. API routes under `src/app/api/**` are fine.
+    14→2. No `bun run build`. Dev server runs on port 3000 (`bun run dev`, log at `/home/z/my-project/dev.log`).
+    15→3. Use `import { db } from "@/lib/db"` for Prisma.
+    16→4. All API responses: success `{ "data": ... }`, failure `{ "error": { "message": string, "code": string } }` with proper HTTP status.
+    17→5. Auth: httpOnly cookie `lcm_session` (JWT). Never trust client role — enforce on server.
+    18→6. NO new external packages without necessity; `jose` already installed.
+    19→7. Next 16 route handler params are async: `{ params }: { params: Promise<{ id: string }> }` → `const { id } = await params`. Same for `cookies()` → `await cookies()`.
+    20→8. Files uploaded to `uploads/<caseId>/...`; served via `/api/files/[documentId]`.
+    21→9. SQLite + Prisma: **no enums, no array fields** — statuses/types are plain strings.
+    22→
+    23→## Foundation files (DO NOT rewrite, only import)
+    24→- `src/lib/db.ts` — `db` Prisma client.
+    25→- `src/lib/constants.ts` — CASE_TYPES, CASE_STATUSES, CASE_STATUS_LABELS, CASE_PRIORITIES, PRIORITY_LABELS, COURTS, DISTRICTS, HEARING_TYPES, HEARING_STATUSES, HEARING_STATUS_LABELS, DOCUMENT_TYPES, DOCUMENT_CATEGORIES, BILLING_TYPES, PAYMENT_METHODS, INVOICE_STATUSES, SPECIALIZATIONS, CLIENT_TYPES, CLIENT_TYPE_LABELS, ROLE_LABELS, ROLES, MAX_FILE_SIZE, ALLOWED_MIME_PREFIXES, APP_NAME, APP_NAME_BN, APP_TAGLINE, CURRENCY_SYMBOL.
+    26→- `src/lib/password.ts` — `hashPassword(pw)`, `verifyPassword(pw, stored)`.
+    27→- `src/lib/auth.ts` — `signSession`, `verifySessionToken`, `setSessionCookie(token)`, `clearSessionCookie()`, `getSessionUser(): Promise<SessionUser|null>`, `SESSION_COOKIE`, `SessionUser { id, name, email, phone, role, status, lawyerProfile: {id,name,specialization}|null, clientProfile: {id,name}|null }`.
+    28→- `src/lib/api-helpers.ts` — `ok(data, status?)`, `err(message, status?, code?)`, `ApiError`, `handle(fn)` (wraps handler, catches ApiError), `requireAuth(roles?)` (throws 401/403), `readJson<T>(request)`, `requireString(v, field)`, `optionalString(v)`, `requireNumber(v, field)`, `parseDateOnly("YYYY-MM-DD") → Date|null` (noon Dhaka).
+    29→- `src/lib/permissions.ts` — `isAdmin`, `isStaffOrAdmin`, `isFinancialRole`, `assertCaseReadAccess(user, caseId)` (throws 404/403, returns case), `assertCaseWriteAccess`, `caseScopeWhere(user, extra?)` → Prisma where scoping by role.
+    30→- `src/lib/dates.ts` — `dhakaDateKey(d?)`, `dhakaDayStart(key)`, `dhakaDayRange(key)` `{start,end}` UTC instants for a Dhaka civil day, `dhakaDayOffset(n)` "YYYY-MM-DD" for n days from today (Dhaka), `daysFromToday(d)`.
+    31→- `src/lib/utils.ts` — `cn`, `formatCurrency`, `formatDate`, `formatDateTime`, `formatRelativeDay` ("Today"/"Tomorrow"), `toDateInputValue`, `formatFileSize`, `initials`, badge style maps: `caseStatusStyles`, `priorityStyles`, `hearingStatusStyles`, `invoiceStatusStyles`, `clientTypeStyles` (each `{label, className}`).
+    32→
+    33→## Seed data & demo accounts (already in DB)
+    34→- Admin: `admin@ainsheba.bd / Admin@123` (Arif Rahman)
+    35→- Lawyers: `kamal@ainsheba.bd / Lawyer@123` (Kamal Hossain — Criminal), `nusrat@ainsheba.bd / Lawyer@123` (Nusrat Jahan — Family), `mahmud@ainsheba.bd / Lawyer@123` (Mahmudul Hasan — Land)
+    36→- Staff: `staff@ainsheba.bd / Staff@123` (Rafiq Islam)
+    37→- Client portal: `client@ainsheba.bd / Client@123` (Abdul Karim → client profile)
+    38→- 6 cases (CS-123/2026 land ACTIVE, CR-456/2026 bail URGENT, FC-789/2026 family, WR-101/2026 writ PENDING, CS-202/2025 CLOSED, LB-303/2026 ON_HOLD), hearings incl. one TODAY, 13 documents (real PDFs in `uploads/seed/`), 6 invoices, 4 payments, 7 case updates, 6 notifications.
+    39→
+    40→## RBAC matrix (enforce server-side)
+    41→| Capability | ADMIN | STAFF | LAWYER | CLIENT |
+    42→|---|---|---|---|---|
+    43→| Manage users/settings | ✓ | ✗ | ✗ | ✗ |
+    44→| Create/edit cases, clients | ✓ | ✓ | ✗ | ✗ |
+    45→| View all cases | ✓ | ✓ | assigned only | own only |
+    46→| Edit assigned case, hearings, docs, updates | ✓ | ✓ | assigned only | ✗ |
+    47→| Upload documents | ✓ | ✓ | assigned cases | ✗ |
+    48→| View/download documents | ✓ | ✓ | assigned cases | sharedWithClient=true only |
+    49→| Invoices/payments create+manage | ✓ | ✗ | ✗ | ✗ |
+    50→| View invoices/payments | ✓ | ✗ | own cases (read) | own only (read) |
+    51→| Financial reports | ✓ | ✗ | ✗ | ✗ |
+    52→| Notifications | own | own | own | own |
+    53→
+    54→---
+    55→
+    56→## API CONTRACT (all routes under `src/app/api/...`)
+    57→
+    58→Every route: success `ok(data)` → 200 `{data}`; errors via `ApiError`/`err`. Auth required on ALL except login. Use `handle(async () => {...})` wrapper.
+    59→
+    60→### Auth
+    61→- `POST /api/auth/login` body `{ email, password }` → `{ data: SessionUser }` + sets cookie. 401 "Invalid email or password." Reject INACTIVE users (403). Case-insensitive email lookup.
+    62→- `POST /api/auth/logout` → clears cookie → `{ data: { ok: true } }`.
+    63→- `GET /api/auth/me` → `{ data: SessionUser | null }` (null if no session, do NOT 401).
+    64→
+    65→### Dashboard — `GET /api/dashboard` (role-aware; single endpoint)
+    66→Returns `{ data: DashboardResponse }` where shape depends on role:
+    67→```ts
+    68→// ADMIN
+    69→{ role: "ADMIN", stats: { totalCases, activeCases, upcomingHearings, closedCases, pendingAmount, pendingInvoiceCount, totalClients, totalLawyers },
+    70→  todaysHearings: HearingDTO[], upcomingHearings: HearingDTO[], // upcoming = next 7 days, take 6
+    71→  recentActivities: { id, kind: "CASE"|"HEARING"|"PAYMENT"|"UPDATE"|"DOCUMENT", title, description, createdAt }[] } // merged latest 8
+    72→// LAWYER
+    73→{ role: "LAWYER", stats: { myActiveCases, todaysHearings, upcomingHearings, pendingClientPayments },
+    74→  todaysHearings: HearingDTO[], upcomingHearings: HearingDTO[], myCases: CaseListDTO[] } // recent 5
+    75→// CLIENT
+    76→{ role: "CLIENT", stats: { totalCases, activeCases, nextHearingDate: string|null, outstandingAmount },
+    77→  myCases: CaseListDTO[], nextHearing: HearingDTO|null, recentUpdates: { id, caseId, caseNumber, caseTitle, update, createdByName, createdAt }[], // latest 5
+    78→  outstandingInvoices: InvoiceDTO[] } // unpaid/partial/overdue
+    79→// STAFF
+    80→{ role: "STAFF", stats: { totalCases, activeCases, todaysHearings, upcomingHearings, totalClients },
+    81→  todaysHearings: HearingDTO[], upcomingHearings: HearingDTO[], recentCases: CaseListDTO[] }
+    82→```
+    83→- "Today"/"upcoming 7 days" computed with `@/lib/dates` (`dhakaDayRange(dhakaDayOffset(0))` etc.).
+    84→- HearingDTO always includes `caseNumber` + `caseTitle`.
+    85→- pendingClientPayments = sum unpaid portion of invoices on lawyer's cases. pendingAmount (admin) = sum of (amount - paid) for UNPAID/PARTIAL/OVERDUE invoices.
+    86→
+    87→### Users (ADMIN only) — for Settings > User Management
+    88→- `GET /api/users?search=&role=` → `{ data: UserDTO[] }`, `UserDTO { id, name, email, phone, role, status, createdAt, linkedName? }` (linkedName = lawyer/client profile name if any).
+    89→- `POST /api/users` body `{ name, email, password, phone?, role }` → creates user. Validate email unique (409), role in ROLES, password min 6.
+    90→- `PATCH /api/users/[id]` body `{ name?, phone?, role?, status?, password? }` → updated UserDTO. Prevent demoting/deactivating self (400). Prevent modifying another ADMIN's role by non-self admin? keep simple: cannot change own role/status.
+    91→- `DELETE /api/users/[id]` → 400 if self; 409 if user has lawyer/client profile with cases; else delete (cascade notifications fine). Delete linked empty lawyer/client profile too.
+    92→
+    93→### Lawyers
+    94→- `GET /api/lawyers` (ADMIN, STAFF; also LAWYER/CLIENT allowed for read of basic list) → `{ data: LawyerDTO[] }`, `LawyerDTO { id, userId, name, phone, email, barCouncilId, specialization, chamberName, experience, status, totalCases, activeCases, createdAt }`. Support `?specialization=&status=&search=`.
+    95→- `POST /api/lawyers` (ADMIN) body `{ name, phone?, email, barCouncilId?, specialization?, chamberName?, experience?, createPortalAccess?, password? }` → creates lawyer; if createPortalAccess → creates linked User (role LAWYER, email, password required, min 6) and connects. 409 if email taken.
+    96→- `GET /api/lawyers/[id]` → LawyerDTO + `cases: CaseListDTO[]` (their cases).
+    97→- `PATCH /api/lawyers/[id]` (ADMIN) body any of the fields + `status`. If name/email changes, sync linked user name/email when applicable.
+    98→- `DELETE /api/lawyers/[id]` (ADMIN) → 409 if has cases; else delete profile + linked user.
+    99→
+   100→### Clients
+   101→- `GET /api/clients` (ADMIN, STAFF; LAWYER gets clients having cases assigned to them) → `{ data: ClientDTO[] }`, `ClientDTO { id, userId, name, phone, email, nid, address, clientType, caseCount, activeCaseCount, portalEmail? (linked user email), createdAt }`. Support `?search=&clientType=&hasPortal=`.
+   102→- `POST /api/clients` (ADMIN, STAFF) body `{ name, phone?, email?, nid?, address?, clientType?, createPortalAccess?, password? }` → ClientDTO. If createPortalAccess → creates User (role CLIENT) with email required+unique.
+   103→- `GET /api/clients/[id]` (ADMIN/STAFF; LAWYER if client has case assigned to them; CLIENT if own profile) → ClientDTO + `cases: CaseListDTO[]` + `invoices: InvoiceDTO[]` (admin/staff only for invoices).
+   104→- `PATCH /api/clients/[id]` (ADMIN, STAFF) same pattern; sync portal user name.
+   105→- `DELETE /api/clients/[id]` (ADMIN) → 409 if has cases or invoices.
+   106→
+   107→### Cases
+   108→- `GET /api/cases?view=all|active|closed&status=&type=&lawyerId=&clientId=&priority=&search=` → `{ data: CaseListDTO[] }` sorted newest filing/created first.
+   109→  - Role scoped via `caseScopeWhere`.
+   110→  - `CaseListDTO { id, caseNumber, title, type, status, priority, court, district, filingDate, oppositeParty, client: {id, name, phone}, lawyer: {id, name} | null, nextHearingDate: string|null, lastUpdate: string|null, createdAt }`.
+   111→  - `view=active` → status IN (ACTIVE, PENDING, ON_HOLD); `view=closed` → status IN (RESOLVED, CLOSED).
+   112→  - `search` matches caseNumber, title, oppositeParty (case-insensitive `contains`).
+   113→  - `nextHearingDate` = min future hearingDate with status UPCOMING (computed in JS after fetching hearings select only needed cols; avoid heavy includes — fetch hearings for these case ids in one query where hearingDate >= now, status UPCOMING, pick earliest per case).
+   114→- `POST /api/cases` (ADMIN, STAFF) body `{ caseNumber, title, type, clientId, lawyerId?, court, district?, filingDate? "YYYY-MM-DD", status?, priority?, oppositeParty?, description? }` → `CaseDetailDTO`. 409 on duplicate caseNumber. Auto CaseUpdate "Case registered…" entry. Notify assigned lawyer + client portal user + admins (skip actor).
+   115→- `GET /api/cases/[id]` (role-scoped) → `CaseDetailDTO = CaseListDTO & { description, resolutionSummary, outcome, closedAt, documents: DocumentDTO[], hearings: HearingDTO[], updates: UpdateDTO[], invoices: InvoiceDTO[] }` (invoices included only for ADMIN and assigned LAWYER and owning CLIENT; STAFF gets invoices: [] — staff has no financial access).
+   116→  - `DocumentDTO { id, caseId, documentName, documentType, category, fileName, fileSize, mimeType, sharedWithClient, uploadedByName, createdAt }` (NOT filePath).
+   117→  - `HearingDTO { id, caseId, caseNumber, caseTitle, hearingDate, court, judge, hearingType, status, notes, summary, courtOrder, nextAction, nextHearingDate, createdAt }` sorted hearingDate desc.
+   118→  - `UpdateDTO { id, caseId, update, createdByName, createdAt }` sorted desc.
+   119→  - CLIENT sees only `documents` where sharedWithClient=true.
+   120→- `PATCH /api/cases/[id]` (ADMIN, STAFF, assigned LAWYER) body any fields incl `status`. When status becomes CLOSED/RESOLVED require `resolutionSummary` (422 if missing) and set `closedAt=now`; allowed `outcome`. LAWYER cannot change clientId/lawyerId (403 if attempted). If lawyerId changes and case reassigns → notify new lawyer. Status CLOSED also auto-mark? no.
+   121→- `DELETE /api/cases/[id]` (ADMIN only) → deletes cascade case docs (delete files from disk best-effort), hearings, updates; 409 if invoices exist.
+   122→
+   123→### Case sub-resources
+   124→- `POST /api/cases/[id]/updates` (ADMIN, STAFF, assigned LAWYER) body `{ update }` → UpdateDTO. Notify client portal user + (other) lawyer.
+   125→- `POST /api/cases/[id]/documents` (ADMIN, STAFF, assigned LAWYER) — **multipart FormData**: fields `file` (required), `documentName` (required, default file name), `documentType?`, `category?`, `sharedWithClient? "true"/"false"`. Validate size ≤ 10MB and mime prefix in ALLOWED_MIME_PREFIXES (pdf, image/*, doc/docx, txt) else 422. Save `uploads/<caseId>/<Date.now()>-<safeName>`. → DocumentDTO. Notify client portal user when sharedWithClient.
+   126→- `PATCH /api/documents/[id]` (ADMIN, uploader, STAFF, assigned LAWYER) body `{ sharedWithClient?, documentName?, category? }` → DocumentDTO.
+   127→- `DELETE /api/documents/[id]` (ADMIN, uploader, STAFF) → deletes file from disk (best effort) + row. LAWYER assigned can delete? → yes for assigned case; CLIENT never.
+   128→- `GET /api/files/[documentId]` (auth; role-checked like case read; CLIENT only if sharedWithClient) → binary file response with `Content-Type` stored mimeType; `?download=1` → `Content-Disposition: attachment; filename*=UTF-8''<encoded>`. 404 if file missing on disk.
+   129→
+   130→### Hearings
+   131→- `GET /api/hearings?filter=all|today|upcoming|past&caseId=&from=YYYY-MM-DD&to=YYYY-MM-DD` → `{ data: HearingDTO[] }` sorted hearingDate asc (past → desc). Role-scoped: ADMIN/STAFF all, LAWYER assigned cases, CLIENT own cases. `today` uses `dhakaDayRange(dhakaDayOffset(0))`; `upcoming` = date >= now (status UPCOMING), `past` = date < today (or status in COMPLETED/ADJOURNED/POSTPONED/CANCELLED with date < today).
+   132→- `POST /api/cases/[id]/hearings` (ADMIN, STAFF, assigned LAWYER) body `{ hearingDate "YYYY-MM-DD" (required), hearingType?, court?, judge?, notes?, nextHearingDate? ignored here }` → HearingDTO. Notify client user + lawyer (skip actor) + admins.
+   133→- `PATCH /api/hearings/[id]` (ADMIN, STAFF, assigned LAWYER) body `{ status?, notes?, summary?, courtOrder?, nextAction?, nextHearingDate? "YYYY-MM-DD", hearingDate?, hearingType?, judge? }` → HearingDTO. When status set to COMPLETED/ADJOURNED/POSTPONED: require `summary` optional but if `nextHearingDate` provided create a new linked UPCOMING hearing on that date automatically (dedupe: same case + same date + UPCOMING exists → skip). Notify client + lawyer about hearing update.
+   134→
+   135→### Invoices (ADMIN only for write; LAWYER/CLIENT read-own; STAFF 403 everywhere)
+   136→- `GET /api/invoices?status=&clientId=&caseId=&search=` → `{ data: InvoiceDTO[] }`. Role: ADMIN all; LAWYER → invoices of assigned cases; CLIENT → own clientId only.
+   137→  - `InvoiceDTO { id, invoiceNumber, caseId, caseNumber?, caseTitle?, clientId, clientName, billingType, description, amount, paidAmount, dueDate, status, payments: PaymentDTO[], createdAt }`.
+   138→  - `status` recomputed at read time: paidAmount = sum(payments); CANCELLED stays; else paid>=amount → PAID; paid>0 → PARTIAL; else dueDate < today(Dhaka) → OVERDUE else UNPAID. Persist computed status too (update row) to keep stored value fresh.
+   139→- `POST /api/invoices` (ADMIN) body `{ caseId?, clientId (required), billingType?, description?, amount > 0, dueDate? "YYYY-MM-DD" }` → InvoiceDTO. Auto invoiceNumber `INV-<year>-<0001>` (count by year, retry on conflict). Notify client portal user.
    140→- `PATCH /api/invoices/[id]` (ADMIN) body `{ billingType?, description?, amount?, dueDate?, status? (only CANCELLED toggle allowed manually) }` → InvoiceDTO.
    141→- `DELETE /api/invoices/[id]` (ADMIN) → 409 if payments exist.
    142→
@@ -245,5 +384,55 @@
    384→Stage Summary:
    385→- All CRITICAL/HIGH/MEDIUM issues fixed and verified; LOW issues fixed except: pagination (MVP-acceptable) and unused shadcn stock components (left in place intentionally).
    386→- Notable product changes per PRD: lawyers now manage billing for own cases (create/cancel invoice, record payment, view billing); self-service password change for every role; demo credentials hidden in production builds.
-
-[showing lines 140-386 of 388; use offset=387 with limit to continue reading]
+   387→- Before real deployment still needed: set AUTH_SECRET + run behind HTTPS (cookie secure flag activates in production).
+   388→
+   389→---
+   390→Task ID: QA-REVIEW-2
+   391→Agent: Z.ai Code (main, post-fix re-review)
+   392→Task: Fresh full-project re-review after QA-FIX-1 — verify all fixes hold, find new/missed issues; deliver updated prioritized report.
+   393→
+   394→Work Log:
+   395→- Read all 25 API route files + libs + schema (subagent QA-REVIEW-2-A) and the entire frontend SPA incl. large views (subagent QA-REVIEW-2-B); both research-only.
+   396→- Dynamic regression suite (curl, 4 role cookie jars): both critical clientId leaks stay CLOSED; CLIENT 403 on lawyers/users/reports; STAFF 403 on invoices/payments; LAWYER invoices scoped to own cases; login rate limit 429 on 9th attempt; timing equalized (~38ms both paths); /api/auth/me 200-null for anonymous (by design).
+   397→- Browser walkthrough (agent-browser) all 4 roles: login screen + gated demo accounts; admin case detail opens Overview; LAWYER has Billing nav, no Reports; CLIENT nav per PRD, billing sidebar<->tab switching fixed; STAFF nav + Settings (My Account/System only); sticky footer on mobile 390x844; bun run lint clean; dev.log error-free.
+   398→- Test incident: one lawyer-edit driven via synthetic DOM events unexpectedly nulled LB-303/2026 oppositeParty+description; NOT reproducible in 2 instrumented attempts (fetch-hook shows lawyer PATCH correctly omits those fields); all values restored exactly (incl. apostrophe); full record integrity re-verified.
+   399→
+   400→Stage Summary:
+   401→- QA-FIX-1 verified except 2 partial gaps: (M-1) /api/dashboard CLIENT nextHearing still leaks judge/notes/summary/courtOrder/nextAction (strip was applied to hearings+case-detail only); (M3) badge refresh after mark-read works from bell dropdown only, not the Notifications page.
+   402→- New findings: 5 MEDIUM (dashboard hearing leak; case rows not keyboard-accessible; lawyer case-edit fields silently discarded (inputs enabled but never sent); badge desync from Notifications page; documents-view case-list error -> wrong empty state) + LOW set (password>max 500 on 3 admin paths; EMAIL_RE gaps; XFF trust; payment POST no $transaction; missing FK indexes; docs delete order; non-multipart 400; upload accept includes svg; dead code ui/toast+toaster+use-toast, ui/sidebar+use-mobile, CASE_TYPES_WITH_OTHER; a11y nits; .env lacks AUTH_SECRET for prod, no .env.example).
+   403→- Data state: 6 seed cases / 6 invoices intact; LB-303 restored byte-exact; lint clean; server healthy.
+   404→
+   405→---
+   406→Task ID: QA-FIX-2
+   407→Agent: Z.ai Code (main, second fix pass)
+   408→Task: Fix all remaining items from QA-REVIEW-2 (5 MEDIUM + full LOW list), with dynamic verification.
+   409→
+   410→Work Log:
+   411→- Schema: added 8 FK indexes (Case.clientId/lawyerId, CaseDocument.caseId, Hearing.caseId+hearingDate, Invoice.clientId/caseId, Payment.invoiceId, CaseUpdate.caseId, Notification.dedupeKey) + User.sessionVersion Int @default(0); `bunx prisma db push` OK.
+   412→- M-1: dashboard hearingDTO gained forClient flag; CLIENT nextHearing now omits judge/notes/summary/courtOrder/nextAction (matches /api/hearings contract). Runtime-verified CLIENT keys stripped, ADMIN internals intact.
+   413→- M1: case list rows now role=button, tabIndex=0, aria-label, Enter/Space handler, focus-visible ring.
+   414→- M2: CaseFormDialog edit payload now always diffs+sends district/filingDate/oppositeParty/description for ALL roles (server blocks only assignment for LAWYER). Runtime-verified lawyer description edit persists via UI; data restored after test.
+   415→- M3: new src/lib/events.ts NOTIFICATIONS_CHANGED_EVENT; Notifications page dispatches after mark-read/mark-all; bell listens and re-polls unread-count instantly. Browser-verified: badge "3" -> cleared immediately.
+   416→- M4: documents-view case-picker error state (AlertTriangle + Try again -> refetchCases).
+   417→- L-1: password max-length (128) checks added to users/[id] PATCH, lawyers POST portal, clients POST portal (500 -> 422; runtime-verified).
+   418→- L-2: new src/lib/validation.ts (EMAIL_RE, isValidEmail); applied to users (import swap), clients POST/[id] PATCH, lawyers POST/[id] PATCH; client-side isValidEmail added to clients/lawyers/settings views.
+   419→- L-3: rate-limit email-only backstop bucket (XFF rotation can no longer bypass); runtime-verified 429 on 9th attempt with rotating XFF.
+   420→- L-4: payment POST fully wrapped in db.$transaction (read-check-create-recompute atomic).
+   421→- L-5: DELETE /api/payments/[id] (ADMIN-only): deletes payment + recomputes invoice status in tx. Runtime-verified lifecycle: POST 100 -> PARTIAL, DELETE -> back to UNPAID; LAWYER/STAFF/CLIENT -> 403. UI: admin trash button + ConfirmDialog in Payments tab.
+   422→- L-6: documents/[id] DELETE now deletes DB row before unlinking file; cases/[id]/documents POST wraps formData() -> 400 on non-multipart (runtime-verified); ADMIN payments GET combines clientId+caseId filters (no overwrite).
+   423→- L-7: .env now sets strong AUTH_SECRET (dev uses it, not fallback); .env.example created.
+   424→- L-10: JWT carries sessionVersion; getSessionUser rejects stale versions; change-password bumps version and re-issues caller cookie. Runtime-verified: session B killed after A changes password (401), A survives via fresh cookie; seed passwords restored.
+   425→- UX: "Record Payment" hidden for PAID/CANCELLED invoices (browser-verified); upload accept attributes now use shared UPLOAD_ACCEPT constant (no image/*, excludes svg); case-detail HearingUpdateDialog now clears emptied fields (same contract as hearings page dialog).
+   426→- A11y: aria-pressed on hearing + notification filter chips; aria-labels on cases/documents/billing/settings search inputs.
+   427→- Dead code deleted: ui/toast.tsx, ui/toaster.tsx, hooks/use-toast.ts, ui/sidebar.tsx, hooks/use-mobile.ts (zero importers verified).
+   428→- Dev server: sandbox was reaping background children; dev server now runs via python double-fork daemon (survives shell exit), fresh Prisma client + AUTH_SECRET loaded.
+   429→
+   430→Verification:
+   431→- bun run lint clean; dev.log error-free; browser + curl suites all green (details above).
+   432→- Final state: 6 cases, 6 invoices (OVERDUE x1, PAID x4, UNPAID x1), 5 payments = seed state; client unread notifications restored to 3; LB-303 description byte-exact; passwords unchanged.
+   433→
+   434→Stage Summary:
+   435→- All QA-REVIEW-2 findings fixed (5 MEDIUM + LOW list) except intentionally-skipped product choices: pagination (MVP-acceptable), 27 unused stock shadcn components (kept), "today" hearings incl. CANCELLED/COMPLETED (ambiguous), follow-up-hearing notification (minor).
+   436→- Session model now: password change revokes other sessions (7-day JWTs no longer survive password changes).
+   437→- New endpoint: DELETE /api/payments/[id] (ADMIN) closes the mis-recorded-payment product gap.
+   438→

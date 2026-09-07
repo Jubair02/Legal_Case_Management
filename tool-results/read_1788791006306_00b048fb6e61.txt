@@ -1,0 +1,602 @@
+   601→              <p className="text-xs text-muted-foreground">
+   602→                {file.name} · {formatFileSize(file.size)}
+   603→              </p>
+   604→            ) : null}
+   605→          </div>
+   606→          <div className="space-y-2">
+   607→            <Label htmlFor="upload-name">Document Name</Label>
+   608→            <Input
+   609→              id="upload-name"
+   610→              value={documentName}
+   611→              onChange={(e) => setDocumentName(e.target.value)}
+   612→              placeholder="Display name for this document"
+   613→            />
+   614→          </div>
+   615→          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+   616→            <div className="space-y-2">
+   617→              <Label>Type</Label>
+   618→              <Select value={documentType || undefined} onValueChange={setDocumentType}>
+   619→                <SelectTrigger className="w-full">
+   620→                  <SelectValue placeholder="Select type" />
+   621→                </SelectTrigger>
+   622→                <SelectContent>
+   623→                  {DOCUMENT_TYPES.map((t) => (
+   624→                    <SelectItem key={t} value={t}>
+   625→                      {t}
+   626→                    </SelectItem>
+   627→                  ))}
+   628→                </SelectContent>
+   629→              </Select>
+   630→            </div>
+   631→            <div className="space-y-2">
+   632→              <Label>Category</Label>
+   633→              <Select value={category || undefined} onValueChange={setCategory}>
+   634→                <SelectTrigger className="w-full">
+   635→                  <SelectValue placeholder="Select category" />
+   636→                </SelectTrigger>
+   637→                <SelectContent>
+   638→                  {DOCUMENT_CATEGORIES.map((c) => (
+   639→                    <SelectItem key={c} value={c}>
+   640→                      {c}
+   641→                    </SelectItem>
+   642→                  ))}
+   643→                </SelectContent>
+   644→              </Select>
+   645→            </div>
+   646→          </div>
+   647→          <div className="flex items-center justify-between rounded-lg border border-stone-200/80 p-3">
+   648→            <div className="space-y-0.5">
+   649→              <Label htmlFor="share-client">Share with client portal</Label>
+   650→              <p className="text-xs text-muted-foreground">Client can view and download this document.</p>
+   651→            </div>
+   652→            <Switch id="share-client" checked={shared} onCheckedChange={setShared} />
+   653→          </div>
+   654→        </div>
+   655→        <DialogFooter>
+   656→          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+   657→            Cancel
+   658→          </Button>
+   659→          <Button onClick={() => void handleSubmit()} disabled={pending}>
+   660→            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+   661→            Upload
+   662→          </Button>
+   663→        </DialogFooter>
+   664→      </DialogContent>
+   665→    </Dialog>
+   666→  )
+   667→}
+   668→
+   669→/* ------------------------------- main view ------------------------------- */
+   670→
+   671→export default function CaseDetailView({ user, navigate, params }: ViewProps) {
+   672→  const id = params.id
+   673→  const { data: detail, loading, error, refetch } = useApiData<CaseDetailDTO>(
+   674→    id ? `/api/cases/${id}` : null
+   675→  )
+   676→
+   677→  const [editOpen, setEditOpen] = useState(false)
+   678→  const [closeStatus, setCloseStatus] = useState<"RESOLVED" | "CLOSED" | null>(null)
+   679→  const [deleteOpen, setDeleteOpen] = useState(false)
+   680→  const [hearingFormOpen, setHearingFormOpen] = useState(false)
+   681→  const [editingHearing, setEditingHearing] = useState<HearingDTO | null>(null)
+   682→  const [uploadOpen, setUploadOpen] = useState(false)
+   683→  const [docToDelete, setDocToDelete] = useState<DocumentDTO | null>(null)
+   684→  const [sharingId, setSharingId] = useState<string | null>(null)
+   685→  const [updateOpen, setUpdateOpen] = useState(false)
+   686→  const [updateText, setUpdateText] = useState("")
+   687→  const [updatePending, setUpdatePending] = useState(false)
+   688→
+   689→  const isAdmin = user.role === "ADMIN"
+   690→  const canWrite = user.role === "ADMIN" || user.role === "STAFF" || user.role === "LAWYER"
+   691→  const showInvoices = Array.isArray(detail?.invoices) && user.role !== "STAFF"
+   692→
+   693→  if (!id) {
+   694→    return (
+   695→      <div className="space-y-6">
+   696→        <EmptyState
+   697→          icon={FolderOpen}
+   698→          title="No case selected"
+   699→          description="Pick a case from the Case Management list to open its file."
+   700→          action={
+   701→            <Button variant="outline" onClick={() => navigate("cases")}>
+   702→              <ArrowLeft className="h-4 w-4" /> Back to Cases
+   703→            </Button>
+   704→          }
+   705→        />
+   706→      </div>
+   707→    )
+   708→  }
+   709→
+   710→  if (loading && !detail) return <LoadingBlock rows={6} />
+   711→
+   712→  if (error && !detail) {
+   713→    return (
+   714→      <div className="space-y-6">
+   715→        <EmptyState
+   716→          icon={AlertTriangle}
+   717→          title="Could not load this case"
+   718→          description={error}
+   719→          action={
+   720→            <Button variant="outline" onClick={() => navigate("cases")}>
+   721→              <ArrowLeft className="h-4 w-4" /> Back to Cases
+   722→            </Button>
+   723→          }
+   724→        />
+   725→      </div>
+   726→    )
+   727→  }
+   728→
+   729→  if (!detail) return <LoadingBlock rows={6} />
+   730→
+   731→  const isClosed = detail.status === "RESOLVED" || detail.status === "CLOSED"
+   732→  const hearings = Array.isArray(detail.hearings) ? detail.hearings : []
+   733→  const documents = Array.isArray(detail.documents) ? detail.documents : []
+   734→  const updates = Array.isArray(detail.updates) ? detail.updates : []
+   735→  const invoices = Array.isArray(detail.invoices) ? detail.invoices : []
+   736→
+   737→  const patchStatus = async (status: string) => {
+   738→    try {
+   739→      await apiSend("PATCH", `/api/cases/${detail.id}`, { status })
+   740→      toast.success(`Status set to ${status.replace(/_/g, " ").toLowerCase()}`)
+   741→      refetch()
+   742→    } catch (e) {
+   743→      toast.error(e instanceof Error ? e.message : "Could not update the status.")
+   744→    }
+   745→  }
+   746→
+   747→  const toggleShare = async (doc: DocumentDTO) => {
+   748→    try {
+   749→      setSharingId(doc.id)
+   750→      await apiSend("PATCH", `/api/documents/${doc.id}`, { sharedWithClient: !doc.sharedWithClient })
+   751→      toast.success(doc.sharedWithClient ? "Sharing turned off" : "Document shared with client")
+   752→      refetch()
+   753→    } catch (e) {
+   754→      toast.error(e instanceof Error ? e.message : "Could not update sharing.")
+   755→    } finally {
+   756→      setSharingId(null)
+   757→    }
+   758→  }
+   759→
+   760→  const submitUpdate = async () => {
+   761→    if (!updateText.trim()) {
+   762→      toast.error("Please write an update first.")
+   763→      return
+   764→    }
+   765→    try {
+   766→      setUpdatePending(true)
+   767→      await apiSend("POST", `/api/cases/${detail.id}/updates`, { update: updateText.trim() })
+   768→      toast.success("Update added")
+   769→      setUpdateText("")
+   770→      setUpdateOpen(false)
+   771→      refetch()
+   772→    } catch (e) {
+   773→      toast.error(e instanceof Error ? e.message : "Could not add the update.")
+   774→    } finally {
+   775→      setUpdatePending(false)
+   776→    }
+   777→  }
+   778→
+   779→  return (
+   780→    <div className="space-y-6">
+   781→      {/* Header */}
+   782→      <div className="space-y-4">
+   783→        <div>
+   784→          <Button variant="ghost" size="sm" className="-ml-2" onClick={() => navigate("cases")}>
+   785→            <ArrowLeft className="h-4 w-4" /> Back to Cases
+   786→          </Button>
+   787→        </div>
+   788→        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+   789→          <div className="space-y-1.5">
+   790→            <div className="flex flex-wrap items-center gap-2">
+   791→              <span className="font-mono text-lg font-bold tracking-tight md:text-xl">{detail.caseNumber}</span>
+   792→              <StatusBadge map={caseStatusStyles} value={detail.status} />
+   793→              <StatusBadge map={priorityStyles} value={detail.priority} />
+   794→              {detail.nextHearingDate ? (
+   795→                <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+   796→                  <CalendarDays className="h-3 w-3" />
+   797→                  Next: {formatRelativeDay(detail.nextHearingDate)}
+   798→                </Badge>
+   799→              ) : null}
+   800→            </div>
+   801→            <p className="text-lg font-semibold tracking-tight">{detail.title}</p>
+   802→          </div>
+   803→
+   804→          {canWrite ? (
+   805→            <div className="flex flex-wrap items-center gap-2">
+   806→              <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+   807→                <FileText className="h-4 w-4" /> Edit Case
+   808→              </Button>
+   809→              {isAdmin || user.role === "STAFF" ? (
+   810→                <DropdownMenu>
+   811→                  <DropdownMenuTrigger asChild>
+   812→                    <Button variant="outline" size="sm">
+   813→                      Status <ChevronDown className="h-4 w-4" />
+   814→                    </Button>
+   815→                  </DropdownMenuTrigger>
+   816→                  <DropdownMenuContent align="end">
+   817→                    <DropdownMenuLabel>Set Status</DropdownMenuLabel>
+   818→                    <DropdownMenuItem onSelect={() => void patchStatus("ACTIVE")}>Set Active</DropdownMenuItem>
+   819→                    <DropdownMenuItem onSelect={() => void patchStatus("PENDING")}>Set Pending</DropdownMenuItem>
+   820→                    <DropdownMenuItem onSelect={() => void patchStatus("ON_HOLD")}>Set On Hold</DropdownMenuItem>
+   821→                    <DropdownMenuSeparator />
+   822→                    <DropdownMenuItem onSelect={() => setCloseStatus("RESOLVED")}>Mark Resolved</DropdownMenuItem>
+   823→                    <DropdownMenuItem onSelect={() => setCloseStatus("CLOSED")}>Close Case</DropdownMenuItem>
+   824→                  </DropdownMenuContent>
+   825→                </DropdownMenu>
+   826→              ) : null}
+   827→              {isAdmin ? (
+   828→                <Button
+   829→                  variant="outline"
+   830→                  size="sm"
+   831→                  className="border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+   832→                  onClick={() => setDeleteOpen(true)}
+   833→                >
+   834→                  <Trash2 className="h-4 w-4" /> Delete
+   835→                </Button>
+   836→              ) : null}
+   837→            </div>
+   838→          ) : null}
+   839→        </div>
+   840→
+   841→        {/* Meta grid */}
+   842→        <dl className="grid grid-cols-1 gap-x-6 gap-y-3 rounded-xl border border-stone-200/80 bg-white p-4 sm:grid-cols-2 lg:grid-cols-3">
+   843→          <MetaItem label="Client">
+   844→            <span>{detail.client?.name ?? "—"}</span>
+   845→            {detail.client?.phone ? (
+   846→              <span className="block text-xs text-muted-foreground">{detail.client.phone}</span>
+   847→            ) : null}
+   848→          </MetaItem>
+   849→          <MetaItem label="Assigned Lawyer">
+   850→            {detail.lawyer?.name ?? <span className="italic text-muted-foreground">Unassigned</span>}
+   851→          </MetaItem>
+   852→          <MetaItem label="Court">{detail.court}</MetaItem>
+   853→          <MetaItem label="District">{detail.district ?? "—"}</MetaItem>
+   854→          <MetaItem label="Type">{detail.type}</MetaItem>
+   855→          <MetaItem label="Opposite Party">{detail.oppositeParty ?? "—"}</MetaItem>
+   856→          <MetaItem label="Filed">{formatDate(detail.filingDate)}</MetaItem>
+   857→          <MetaItem label="Created">{formatDateTime(detail.createdAt)}</MetaItem>
+   858→        </dl>
+   859→      </div>
+   860→
+   861→      {/* Closed banner */}
+   862→      {isClosed && detail.resolutionSummary ? (
+   863→        <SectionCard title="Case Resolution" className="border-amber-300 bg-amber-50/60">
+   864→          <div className="flex flex-wrap items-start justify-between gap-3">
+   865→            <p className="whitespace-pre-wrap text-sm">{detail.resolutionSummary}</p>
+   866→            {detail.outcome ? (
+   867→              <Badge variant="outline" className="border-amber-300 bg-white text-amber-800">
+   868→                Outcome: {detail.outcome}
+   869→              </Badge>
+   870→            ) : null}
+   871→          </div>
+   872→          {detail.closedAt ? (
+   873→            <p className="mt-2 text-xs text-muted-foreground">Closed {formatDateTime(detail.closedAt)}</p>
+   874→          ) : null}
+   875→        </SectionCard>
+   876→      ) : null}
+   877→
+   878→      {/* Tabs */}
+   879→      <Tabs defaultValue="overview">
+   880→        <TabsList>
+   881→          <TabsTrigger value="overview">Overview</TabsTrigger>
+   882→          <TabsTrigger value="hearings">Hearings</TabsTrigger>
+   883→          <TabsTrigger value="documents">Documents</TabsTrigger>
+   884→          <TabsTrigger value="updates">Updates</TabsTrigger>
+   885→          {showInvoices ? <TabsTrigger value="invoices">Invoices</TabsTrigger> : null}
+   886→        </TabsList>
+   887→
+   888→        {/* ------------------------------ Overview ------------------------------ */}
+   889→        <TabsContent value="overview" className="mt-4 space-y-6">
+   890→          <SectionCard title="Description">
+   891→            {detail.description ? (
+   892→              <p className="whitespace-pre-wrap text-sm">{detail.description}</p>
+   893→            ) : (
+   894→              <p className="text-sm italic text-muted-foreground">No description provided.</p>
+   895→            )}
+   896→          </SectionCard>
+   897→
+   898→          <SectionCard title="Case Information">
+   899→            <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+   900→              <MetaItem label="Case Number">
+   901→                <span className="font-mono font-semibold">{detail.caseNumber}</span>
+   902→              </MetaItem>
+   903→              <MetaItem label="Status">
+   904→                <StatusBadge map={caseStatusStyles} value={detail.status} />
+   905→              </MetaItem>
+   906→              <MetaItem label="Priority">
+   907→                <StatusBadge map={priorityStyles} value={detail.priority} />
+   908→              </MetaItem>
+   909→              <MetaItem label="Type">{detail.type}</MetaItem>
+   910→              <MetaItem label="Client">
+   911→                <span>{detail.client?.name ?? "—"}</span>
+   912→                {detail.client?.phone ? (
+   913→                  <span className="block text-xs text-muted-foreground">{detail.client.phone}</span>
+   914→                ) : null}
+   915→              </MetaItem>
+   916→              <MetaItem label="Assigned Lawyer">
+   917→                {detail.lawyer?.name ?? <span className="italic text-muted-foreground">Unassigned</span>}
+   918→              </MetaItem>
+   919→              <MetaItem label="Court">{detail.court}</MetaItem>
+   920→              <MetaItem label="District">{detail.district ?? "—"}</MetaItem>
+   921→              <MetaItem label="Opposite Party">{detail.oppositeParty ?? "—"}</MetaItem>
+   922→              <MetaItem label="Filed">{formatDate(detail.filingDate)}</MetaItem>
+   923→              <MetaItem label="Next Hearing">
+   924→                {detail.nextHearingDate
+   925→                  ? `${formatRelativeDay(detail.nextHearingDate)} · ${formatDate(detail.nextHearingDate)}`
+   926→                  : "—"}
+   927→              </MetaItem>
+   928→              <MetaItem label="Created">{formatDateTime(detail.createdAt)}</MetaItem>
+   929→            </dl>
+   930→          </SectionCard>
+   931→
+   932→          {detail.resolutionSummary && !isClosed ? (
+   933→            <SectionCard title="Resolution">
+   934→              <div className="flex flex-wrap items-start justify-between gap-3">
+   935→                <p className="whitespace-pre-wrap text-sm">{detail.resolutionSummary}</p>
+   936→                {detail.outcome ? <Badge variant="outline">Outcome: {detail.outcome}</Badge> : null}
+   937→              </div>
+   938→            </SectionCard>
+   939→          ) : null}
+   940→        </TabsContent>
+   941→
+   942→        {/* ------------------------------ Hearings ------------------------------ */}
+   943→        <TabsContent value="hearings" className="mt-4 space-y-4">
+   944→          <div className="flex items-center justify-between gap-2">
+   945→            <p className="text-sm text-muted-foreground">
+   946→              {hearings.length} {hearings.length === 1 ? "hearing" : "hearings"} on record
+   947→            </p>
+   948→            {canWrite ? (
+   949→              <Button size="sm" onClick={() => setHearingFormOpen(true)}>
+   950→                <CalendarPlus className="h-4 w-4" /> Schedule Hearing
+   951→              </Button>
+   952→            ) : null}
+   953→          </div>
+   954→
+   955→          {hearings.length === 0 ? (
+   956→            <EmptyState
+   957→              icon={Gavel}
+   958→              title="No hearings yet"
+   959→              description="Scheduled hearings will appear here."
+   960→            />
+   961→          ) : (
+   962→            <div className="space-y-3">
+   963→              {hearings.map((h) => (
+   964→                <Card key={h.id} className="gap-3 border-stone-200/80 p-4">
+   965→                  <div className="flex flex-wrap items-start justify-between gap-3">
+   966→                    <div className="flex min-w-0 items-start gap-4">
+   967→                      <div className="w-20 shrink-0 rounded-lg border border-stone-200/80 bg-stone-50 p-2 text-center">
+   968→                        <p className="text-sm font-bold leading-tight">{formatDate(h.hearingDate)}</p>
+   969→                        <p className="text-[11px] text-muted-foreground">{formatWeekday(h.hearingDate)}</p>
+   970→                        <p className="text-xs font-medium text-emerald-700">{formatTime(h.hearingDate)}</p>
+   971→                      </div>
+   972→                      <div className="min-w-0 space-y-1">
+   973→                        <div className="flex flex-wrap items-center gap-2">
+   974→                          <StatusBadge map={hearingStatusStyles} value={h.status} />
+   975→                          {h.hearingType ? <span className="text-sm font-medium">{h.hearingType}</span> : null}
+   976→                        </div>
+   977→                        <p className="truncate text-xs text-muted-foreground">
+   978→                          {[h.judge, h.court].filter(Boolean).join(" · ") || "—"}
+   979→                        </p>
+   980→                        {h.notes ? <p className="text-xs text-muted-foreground">{h.notes}</p> : null}
+   981→                      </div>
+   982→                    </div>
+   983→                    {canWrite ? (
+   984→                      <Button variant="outline" size="sm" onClick={() => setEditingHearing(h)}>
+   985→                        Update
+   986→                      </Button>
+   987→                    ) : null}
+   988→                  </div>
+   989→
+   990→                  {h.nextHearingDate ? (
+   991→                    <div className="flex flex-wrap gap-2">
+   992→                      <Badge variant="outline" className="border-amber-200 bg-amber-50 text-amber-800">
+   993→                        <CalendarDays className="h-3 w-3" />
+   994→                        Next Hearing: {formatDate(h.nextHearingDate)}
+   995→                      </Badge>
+   996→                    </div>
+   997→                  ) : null}
+   998→
+   999→                  {h.summary || h.courtOrder || h.nextAction ? (
+  1000→                    <div className="space-y-1.5 border-t border-stone-100 pt-3">
+  1001→                      {h.summary ? (
+  1002→                        <p className="flex items-start gap-2 text-xs text-muted-foreground">
+  1003→                          <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+  1004→                          {h.summary}
+  1005→                        </p>
+  1006→                      ) : null}
+  1007→                      {h.courtOrder ? (
+  1008→                        <p className="flex items-start gap-2 text-xs text-muted-foreground">
+  1009→                          <Gavel className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+  1010→                          {h.courtOrder}
+  1011→                        </p>
+  1012→                      ) : null}
+  1013→                      {h.nextAction ? (
+  1014→                        <p className="flex items-start gap-2 text-xs text-muted-foreground">
+  1015→                          <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+  1016→                          {h.nextAction}
+  1017→                        </p>
+  1018→                      ) : null}
+  1019→                    </div>
+  1020→                  ) : null}
+  1021→                </Card>
+  1022→              ))}
+  1023→            </div>
+  1024→          )}
+  1025→        </TabsContent>
+  1026→
+  1027→        {/* ------------------------------ Documents ------------------------------ */}
+  1028→        <TabsContent value="documents" className="mt-4 space-y-4">
+  1029→          <div className="flex items-center justify-between gap-2">
+  1030→            <p className="text-sm text-muted-foreground">
+  1031→              {documents.length} {documents.length === 1 ? "document" : "documents"} on file
+  1032→            </p>
+  1033→            {canWrite ? (
+  1034→              <Button size="sm" onClick={() => setUploadOpen(true)}>
+  1035→                <Upload className="h-4 w-4" /> Upload Document
+  1036→              </Button>
+  1037→            ) : null}
+  1038→          </div>
+  1039→
+  1040→          {documents.length === 0 ? (
+  1041→            <EmptyState
+  1042→              icon={FileText}
+  1043→              title="No documents"
+  1044→              description={
+  1045→                canWrite ? "Upload court filings, evidence and supporting documents." : "No documents have been shared yet."
+  1046→              }
+  1047→            />
+  1048→          ) : (
+  1049→            <Card className="border-stone-200/80 py-2">
+  1050→              <Table>
+  1051→                <TableHeader>
+  1052→                  <TableRow className="hover:bg-transparent">
+  1053→                    <TableHead className="pl-4">Document</TableHead>
+  1054→                    <TableHead>Type</TableHead>
+  1055→                    <TableHead>Category</TableHead>
+  1056→                    <TableHead>Size</TableHead>
+  1057→                    <TableHead>Uploaded By</TableHead>
+  1058→                    <TableHead>Date</TableHead>
+  1059→                    <TableHead className="pr-4 text-right">Actions</TableHead>
+  1060→                  </TableRow>
+  1061→                </TableHeader>
+  1062→                <TableBody>
+  1063→                  {documents.map((doc) => (
+  1064→                    <TableRow key={doc.id}>
+  1065→                      <TableCell className="pl-4">
+  1066→                        <div className="flex flex-wrap items-center gap-2">
+  1067→                          <span className="font-semibold">{doc.documentName}</span>
+  1068→                          {doc.sharedWithClient ? (
+  1069→                            <Badge
+  1070→                              variant="outline"
+  1071→                              className="border-emerald-200 bg-emerald-50 text-emerald-800"
+  1072→                            >
+  1073→                              <Users className="h-3 w-3" /> Shared
+  1074→                            </Badge>
+  1075→                          ) : null}
+  1076→                        </div>
+  1077→                      </TableCell>
+  1078→                      <TableCell className="text-sm text-muted-foreground">{doc.documentType ?? "—"}</TableCell>
+  1079→                      <TableCell className="text-sm text-muted-foreground">{doc.category ?? "—"}</TableCell>
+  1080→                      <TableCell className="text-sm text-muted-foreground">{formatFileSize(doc.fileSize)}</TableCell>
+  1081→                      <TableCell className="text-sm text-muted-foreground">{doc.uploadedByName ?? "—"}</TableCell>
+  1082→                      <TableCell className="text-sm text-muted-foreground">{formatDate(doc.createdAt)}</TableCell>
+  1083→                      <TableCell className="pr-4">
+  1084→                        <div className="flex items-center justify-end gap-1">
+  1085→                          <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+  1086→                            <a href={`/api/files/${doc.id}?download=1`} aria-label={`Download ${doc.documentName}`} title="Download">
+  1087→                              <Download className="h-4 w-4" />
+  1088→                            </a>
+  1089→                          </Button>
+  1090→                          {canWrite ? (
+  1091→                            <Button
+  1092→                              variant="ghost"
+  1093→                              size="icon"
+  1094→                              className="h-8 w-8"
+  1095→                              disabled={sharingId === doc.id}
+  1096→                              onClick={() => void toggleShare(doc)}
+  1097→                              title={doc.sharedWithClient ? "Stop sharing with client" : "Share with client"}
+  1098→                            >
+  1099→                              {sharingId === doc.id ? (
+  1100→                                <Loader2 className="h-4 w-4 animate-spin" />
+  1101→                              ) : doc.sharedWithClient ? (
+  1102→                                <EyeOff className="h-4 w-4" />
+  1103→                              ) : (
+  1104→                                <Eye className="h-4 w-4" />
+  1105→                              )}
+  1106→                            </Button>
+  1107→                          ) : null}
+  1108→                          {canWrite ? (
+  1109→                            <Button
+  1110→                              variant="ghost"
+  1111→                              size="icon"
+  1112→                              className="h-8 w-8 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+  1113→                              onClick={() => setDocToDelete(doc)}
+  1114→                              title="Delete document"
+  1115→                            >
+  1116→                              <Trash2 className="h-4 w-4" />
+  1117→                            </Button>
+  1118→                          ) : null}
+  1119→                        </div>
+  1120→                      </TableCell>
+  1121→                    </TableRow>
+  1122→                  ))}
+  1123→                </TableBody>
+  1124→              </Table>
+  1125→            </Card>
+  1126→          )}
+  1127→        </TabsContent>
+  1128→
+  1129→        {/* ------------------------------- Updates ------------------------------- */}
+  1130→        <TabsContent value="updates" className="mt-4 space-y-4">
+  1131→          <div className="flex items-center justify-between gap-2">
+  1132→            <p className="text-sm text-muted-foreground">
+  1133→              {updates.length} {updates.length === 1 ? "entry" : "entries"}
+  1134→            </p>
+  1135→            {canWrite ? (
+  1136→              <Button size="sm" onClick={() => setUpdateOpen(true)}>
+  1137→                <MessageSquarePlus className="h-4 w-4" /> Add Update
+  1138→              </Button>
+  1139→            ) : null}
+  1140→          </div>
+  1141→
+  1142→          {updates.length === 0 ? (
+  1143→            <EmptyState
+  1144→              icon={MessageSquarePlus}
+  1145→              title="No updates yet"
+  1146→              description="Progress notes added by the chamber will appear here."
+  1147→            />
+  1148→          ) : (
+  1149→            <div className="ml-2 space-y-6 border-l-2 border-emerald-200 pl-6">
+  1150→              {updates.map((u) => (
+  1151→                <div key={u.id} className="relative">
+  1152→                  <span className="absolute -left-[1.9rem] top-1 h-3 w-3 rounded-full border-2 border-emerald-500 bg-white" />
+  1153→                  <p className="whitespace-pre-wrap text-sm">{u.update}</p>
+  1154→                  <p className="mt-1 text-xs text-muted-foreground">
+  1155→                    {u.createdByName ?? "—"} · {formatDateTime(u.createdAt)}
+  1156→                  </p>
+  1157→                </div>
+  1158→              ))}
+  1159→            </div>
+  1160→          )}
+  1161→        </TabsContent>
+  1162→
+  1163→        {/* ------------------------------- Invoices ------------------------------- */}
+  1164→        {showInvoices ? (
+  1165→          <TabsContent value="invoices" className="mt-4 space-y-4">
+  1166→            {invoices.length === 0 ? (
+  1167→              <EmptyState icon={Receipt} title="No invoices" description="No invoices have been raised for this case." />
+  1168→            ) : (
+  1169→              <Card className="border-stone-200/80 py-2">
+  1170→                <Table>
+  1171→                  <TableHeader>
+  1172→                    <TableRow className="hover:bg-transparent">
+  1173→                      <TableHead className="pl-4">Invoice</TableHead>
+  1174→                      <TableHead>Case</TableHead>
+  1175→                      <TableHead>Client</TableHead>
+  1176→                      <TableHead>Billing Type</TableHead>
+  1177→                      <TableHead className="text-right">Amount</TableHead>
+  1178→                      <TableHead className="text-right">Paid</TableHead>
+  1179→                      <TableHead>Due</TableHead>
+  1180→                      <TableHead className="pr-4">Status</TableHead>
+  1181→                    </TableRow>
+  1182→                  </TableHeader>
+  1183→                  <TableBody>
+  1184→                    {invoices.map((inv) => (
+  1185→                      <TableRow key={inv.id}>
+  1186→                        <TableCell className="pl-4 font-semibold">{inv.invoiceNumber}</TableCell>
+  1187→                        <TableCell>
+  1188→                          {inv.caseNumber ? (
+  1189→                            <Badge variant="outline" className="border-stone-200 bg-stone-50 text-stone-600">
+  1190→                              {inv.caseNumber}
+  1191→                            </Badge>
+  1192→                          ) : (
+  1193→                            <span className="text-muted-foreground">—</span>
+  1194→                          )}
+  1195→                        </TableCell>
+  1196→                        <TableCell className="text-sm">{inv.clientName}</TableCell>
+  1197→                        <TableCell className="text-sm text-muted-foreground">{inv.billingType ?? "—"}</TableCell>
+  1198→                        <TableCell className="text-right text-sm font-medium">{formatCurrency(inv.amount)}</TableCell>
+  1199→                        <TableCell className="text-right text-sm text-muted-foreground">
+  1200→                          {formatCurrency(inv.paidAmount)}
+
+[showing lines 601-1200 of 1324; use offset=1201 with limit to continue reading]

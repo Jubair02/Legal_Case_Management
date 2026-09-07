@@ -1,0 +1,733 @@
+     1→"use client"
+     2→
+     3→import { useEffect, useMemo, useState } from "react"
+     4→import { AlertTriangle, FolderKanban, Loader2, Plus, Search, X } from "lucide-react"
+     5→import { toast } from "sonner"
+     6→
+     7→import { EmptyState } from "@/components/shared/empty-state"
+     8→import { LoadingBlock } from "@/components/shared/loading-block"
+     9→import { PageHeader } from "@/components/shared/page-header"
+    10→import { StatusBadge } from "@/components/shared/status-badge"
+    11→import { useApiData } from "@/hooks/use-api-data"
+    12→import { apiGet, apiSend } from "@/lib/api-client"
+    13→import {
+    14→  CASE_PRIORITIES,
+    15→  CASE_STATUSES,
+    16→  CASE_STATUS_LABELS,
+    17→  CASE_TYPES,
+    18→  COURTS,
+    19→  DISTRICTS,
+    20→  PRIORITY_LABELS,
+    21→} from "@/lib/constants"
+    22→import {
+    23→  caseStatusStyles,
+    24→  cn,
+    25→  formatDate,
+    26→  formatRelativeDay,
+    27→  priorityStyles,
+    28→  toDateInputValue,
+    29→} from "@/lib/utils"
+    30→import type {
+    31→  CaseDetailDTO,
+    32→  CaseListDTO,
+    33→  ClientDTO,
+    34→  LawyerDTO,
+    35→  ViewProps,
+    36→} from "@/lib/types"
+    37→
+    38→import { Badge } from "@/components/ui/badge"
+    39→import { Button } from "@/components/ui/button"
+    40→import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+    41→import {
+    42→  Dialog,
+    43→  DialogContent,
+    44→  DialogDescription,
+    45→  DialogFooter,
+    46→  DialogHeader,
+    47→  DialogTitle,
+    48→} from "@/components/ui/dialog"
+    49→import { Input } from "@/components/ui/input"
+    50→import { Label } from "@/components/ui/label"
+    51→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+    52→import {
+    53→  Table,
+    54→  TableBody,
+    55→  TableCell,
+    56→  TableHead,
+    57→  TableHeader,
+    58→  TableRow,
+    59→} from "@/components/ui/table"
+    60→import { Textarea } from "@/components/ui/textarea"
+    61→
+    62→const VIEW_TABS = [
+    63→  { key: "all", label: "All" },
+    64→  { key: "active", label: "Active" },
+    65→  { key: "closed", label: "Closed" },
+    66→] as const
+    67→
+    68→type ViewTab = (typeof VIEW_TABS)[number]["key"]
+    69→
+    70→/** Sentinel for optional Radix Select values (empty string is not allowed). */
+    71→const NONE = "__none__"
+    72→
+    73→/* ------------------------------------------------------------------ */
+    74→/*                        Case create / edit dialog                    */
+    75→/* ------------------------------------------------------------------ */
+    76→
+    77→export interface CaseFormDialogProps {
+    78→  open: boolean
+    79→  onOpenChange: (open: boolean) => void
+    80→  onSaved: () => void
+    81→  editing?: CaseDetailDTO | CaseListDTO | null
+    82→  /** Role of the acting user — LAWYER cannot reassign client/lawyer. */
+    83→  actorRole?: string
+    84→}
+    85→
+    86→export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole }: CaseFormDialogProps) {
+    87→  const [clients, setClients] = useState<ClientDTO[]>([])
+    88→  const [lawyers, setLawyers] = useState<LawyerDTO[]>([])
+    89→  const [optionsLoading, setOptionsLoading] = useState(false)
+    90→  const [pending, setPending] = useState(false)
+    91→
+    92→  const [caseNumber, setCaseNumber] = useState("")
+    93→  const [title, setTitle] = useState("")
+    94→  const [type, setType] = useState<string>("")
+    95→  const [clientId, setClientId] = useState<string>("")
+    96→  const [lawyerId, setLawyerId] = useState<string>("")
+    97→  const [court, setCourt] = useState<string>("")
+    98→  const [district, setDistrict] = useState<string>("")
+    99→  const [filingDate, setFilingDate] = useState("")
+   100→  const [status, setStatus] = useState<string>("ACTIVE")
+   101→  const [priority, setPriority] = useState<string>("MEDIUM")
+   102→  const [oppositeParty, setOppositeParty] = useState("")
+   103→  const [description, setDescription] = useState("")
+   104→  const [resolutionSummary, setResolutionSummary] = useState("")
+   105→  const [outcome, setOutcome] = useState("")
+   106→
+   107→  const isEditing = Boolean(editing)
+   108→  const isLawyer = actorRole === "LAWYER"
+   109→  const closing = status === "RESOLVED" || status === "CLOSED"
+   110→  /** Status options: restricted on create, full list when editing. */
+   111→  const statusOptions: readonly string[] = isEditing ? CASE_STATUSES : (["DRAFT", "ACTIVE", "PENDING"] as const)
+   112→
+   113→  // Prefill when the dialog opens
+   114→  useEffect(() => {
+   115→    if (!open) return
+   116→    const e = editing ?? null
+   117→    setCaseNumber(e?.caseNumber ?? "")
+   118→    setTitle(e?.title ?? "")
+   119→    setType(e?.type ?? "")
+   120→    setClientId(e?.client?.id ?? "")
+   121→    setLawyerId(e?.lawyer?.id ?? "")
+   122→    setCourt(e?.court ?? "")
+   123→    setDistrict(e?.district ?? "")
+   124→    setFilingDate(toDateInputValue(e?.filingDate))
+   125→    setStatus(e?.status ?? "ACTIVE")
+   126→    setPriority(e?.priority ?? "MEDIUM")
+   127→    setOppositeParty(e?.oppositeParty ?? "")
+   128→    setDescription(e && "description" in e ? (e.description ?? "") : "")
+   129→    setResolutionSummary(e && "resolutionSummary" in e ? (e.resolutionSummary ?? "") : "")
+   130→    setOutcome(e && "outcome" in e ? (e.outcome ?? "") : "")
+   131→  }, [open, editing])
+   132→
+   133→  // Load client / lawyer options when opened
+   134→  useEffect(() => {
+   135→    if (!open) return
+   136→    let active = true
+   137→    setOptionsLoading(true)
+   138→    Promise.all([apiGet<ClientDTO[]>("/api/clients"), apiGet<LawyerDTO[]>("/api/lawyers")])
+   139→      .then(([cls, lws]) => {
+   140→        if (!active) return
+   141→        setClients(Array.isArray(cls) ? cls : [])
+   142→        setLawyers(Array.isArray(lws) ? lws : [])
+   143→      })
+   144→      .catch((e: unknown) => {
+   145→        toast.error(e instanceof Error ? e.message : "Could not load clients and lawyers.")
+   146→      })
+   147→      .finally(() => {
+   148→        if (active) setOptionsLoading(false)
+   149→      })
+   150→    return () => {
+   151→      active = false
+   152→    }
+   153→  }, [open])
+   154→
+   155→  const handleSubmit = async () => {
+   156→    // Client-side validation
+   157→    if (!isEditing && !caseNumber.trim()) {
+   158→      toast.error("Case number is required.")
+   159→      return
+   160→    }
+   161→    if (!title.trim()) {
+   162→      toast.error("Case title is required.")
+   163→      return
+   164→    }
+   165→    if (!type) {
+   166→      toast.error("Please select a case type.")
+   167→      return
+   168→    }
+   169→    if (!clientId) {
+   170→      toast.error("Please select a client.")
+   171→      return
+   172→    }
+   173→    if (!court) {
+   174→      toast.error("Please select a court.")
+   175→      return
+   176→    }
+   177→    if (closing && !resolutionSummary.trim()) {
+   178→      toast.error("Resolution summary is required to resolve or close a case.")
+   179→      return
+   180→    }
+   181→
+   182→    const prev = editing ?? null
+   183→    const payload: Record<string, unknown> = {}
+   184→
+   185→    if (!prev) {
+   186→      // Create — required fields + provided optionals
+   187→      payload.caseNumber = caseNumber.trim()
+   188→      payload.title = title.trim()
+   189→      payload.type = type
+   190→      payload.clientId = clientId
+   191→      payload.court = court
+   192→      if (lawyerId) payload.lawyerId = lawyerId
+   193→      if (district) payload.district = district
+   194→      if (filingDate) payload.filingDate = filingDate
+   195→      payload.status = status
+   196→      payload.priority = priority
+   197→      if (oppositeParty.trim()) payload.oppositeParty = oppositeParty.trim()
+   198→      if (description.trim()) payload.description = description.trim()
+   199→      if (closing) payload.resolutionSummary = resolutionSummary.trim()
+   200→      if (outcome.trim()) payload.outcome = outcome.trim()
+   201→    } else {
+   202→      // Edit — only fields that were provided / actually changed.
+   203→      // District / filing date / opposite party / description are editable by
+   204→      // every role that can open this dialog (the server only blocks
+   205→      // assignment changes for lawyers), so they are always diffed and sent.
+   206→      payload.title = title.trim()
+   207→      payload.type = type
+   208→      payload.court = court
+   209→      payload.status = status
+   210→      payload.priority = priority
+   211→      if (!isLawyer) {
+   212→        // Only ADMIN/STAFF can change case assignment.
+   213→        if (clientId !== prev.client?.id) payload.clientId = clientId
+   214→        if ((lawyerId || null) !== (prev.lawyer?.id ?? null)) payload.lawyerId = lawyerId || null
+   215→      }
+   216→      if (district !== (prev.district ?? "")) payload.district = district.trim() || null
+   217→      if ((filingDate || null) !== (prev.filingDate ? toDateInputValue(prev.filingDate) : null))
+   218→        payload.filingDate = filingDate || null
+   219→      if (oppositeParty.trim() !== (prev.oppositeParty ?? ""))
+   220→        payload.oppositeParty = oppositeParty.trim() || null
+   221→      const prevDescription = "description" in prev ? (prev.description ?? "") : ""
+   222→      if (description.trim() !== prevDescription) payload.description = description.trim() || null
+   223→      if (closing) {
+   224→        payload.resolutionSummary = resolutionSummary.trim()
+   225→        if (outcome.trim()) payload.outcome = outcome.trim()
+   226→      }
+   227→    }
+   228→
+   229→    try {
+   230→      setPending(true)
+   231→      if (prev) {
+   232→        await apiSend("PATCH", `/api/cases/${prev.id}`, payload)
+   233→        toast.success("Case updated")
+   234→      } else {
+   235→        await apiSend("POST", "/api/cases", payload)
+   236→        toast.success("Case registered")
+   237→      }
+   238→      onSaved()
+   239→      onOpenChange(false)
+   240→    } catch (e) {
+   241→      toast.error(e instanceof Error ? e.message : "Could not save the case.")
+   242→    } finally {
+   243→      setPending(false)
+   244→    }
+   245→  }
+   246→
+   247→  return (
+   248→    <Dialog open={open} onOpenChange={onOpenChange}>
+   249→      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+   250→        <DialogHeader>
+   251→          <DialogTitle>{isEditing ? "Edit Case" : "Register New Case"}</DialogTitle>
+   252→          <DialogDescription>
+   253→            {isEditing
+   254→              ? "Update the case file details below."
+   255→              : "Fill in the details to register a new case file."}
+   256→          </DialogDescription>
+   257→        </DialogHeader>
+   258→
+   259→        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+   260→          <div className="space-y-2">
+   261→            <Label htmlFor="case-number">Case Number</Label>
+   262→            <Input
+   263→              id="case-number"
+   264→              value={caseNumber}
+   265→              onChange={(e) => setCaseNumber(e.target.value)}
+   266→              placeholder="e.g. CS-124/2026"
+   267→              disabled={isEditing}
+   268→              className="font-mono"
+   269→            />
+   270→          </div>
+   271→          <div className="space-y-2">
+   272→            <Label htmlFor="case-title">
+   273→              Case Title <span className="text-rose-600">*</span>
+   274→            </Label>
+   275→            <Input
+   276→              id="case-title"
+   277→              value={title}
+   278→              onChange={(e) => setTitle(e.target.value)}
+   279→              placeholder="e.g. Rahman vs Karim — land dispute"
+   280→            />
+   281→          </div>
+   282→
+   283→          <div className="space-y-2">
+   284→            <Label>
+   285→              Case Type <span className="text-rose-600">*</span>
+   286→            </Label>
+   287→            <Select value={type || undefined} onValueChange={setType}>
+   288→              <SelectTrigger className="w-full">
+   289→                <SelectValue placeholder="Select type" />
+   290→              </SelectTrigger>
+   291→              <SelectContent>
+   292→                {CASE_TYPES.map((t) => (
+   293→                  <SelectItem key={t} value={t}>
+   294→                    {t}
+   295→                  </SelectItem>
+   296→                ))}
+   297→              </SelectContent>
+   298→            </Select>
+   299→          </div>
+   300→
+   301→          <div className="space-y-2">
+   302→            <Label>
+   303→              Client <span className="text-rose-600">*</span>
+   304→            </Label>
+   305→            <Select
+   306→              value={clientId || undefined}
+   307→              onValueChange={setClientId}
+   308→              disabled={isLawyer}
+   309→            >
+   310→              <SelectTrigger className="w-full">
+   311→                <SelectValue placeholder={optionsLoading ? "Loading clients…" : "Select client"} />
+   312→              </SelectTrigger>
+   313→              <SelectContent>
+   314→                {clients.map((c) => (
+   315→                  <SelectItem key={c.id} value={c.id}>
+   316→                    {c.name}
+   317→                  </SelectItem>
+   318→                ))}
+   319→              </SelectContent>
+   320→            </Select>
+   321→          </div>
+   322→
+   323→          <div className="space-y-2">
+   324→            <Label>Assigned Lawyer</Label>
+   325→            <Select
+   326→              value={lawyerId || NONE}
+   327→              onValueChange={(v) => setLawyerId(v === NONE ? "" : v)}
+   328→              disabled={isLawyer}
+   329→            >
+   330→              <SelectTrigger className="w-full">
+   331→                <SelectValue placeholder={optionsLoading ? "Loading lawyers…" : "Unassigned"} />
+   332→              </SelectTrigger>
+   333→              <SelectContent>
+   334→                <SelectItem value={NONE}>Unassigned</SelectItem>
+   335→                {lawyers.map((l) => (
+   336→                  <SelectItem key={l.id} value={l.id}>
+   337→                    {l.name}
+   338→                  </SelectItem>
+   339→                ))}
+   340→              </SelectContent>
+   341→            </Select>
+   342→          </div>
+   343→
+   344→          <div className="space-y-2">
+   345→            <Label>
+   346→              Court <span className="text-rose-600">*</span>
+   347→            </Label>
+   348→            <Select value={court || undefined} onValueChange={setCourt}>
+   349→              <SelectTrigger className="w-full">
+   350→                <SelectValue placeholder="Select court" />
+   351→              </SelectTrigger>
+   352→              <SelectContent>
+   353→                {COURTS.map((ct) => (
+   354→                  <SelectItem key={ct} value={ct}>
+   355→                    {ct}
+   356→                  </SelectItem>
+   357→                ))}
+   358→              </SelectContent>
+   359→            </Select>
+   360→          </div>
+   361→
+   362→          <div className="space-y-2">
+   363→            <Label>District</Label>
+   364→            <Select value={district || NONE} onValueChange={(v) => setDistrict(v === NONE ? "" : v)}>
+   365→              <SelectTrigger className="w-full">
+   366→                <SelectValue placeholder="Select district" />
+   367→              </SelectTrigger>
+   368→              <SelectContent>
+   369→                <SelectItem value={NONE}>Not specified</SelectItem>
+   370→                {DISTRICTS.map((d) => (
+   371→                  <SelectItem key={d} value={d}>
+   372→                    {d}
+   373→                  </SelectItem>
+   374→                ))}
+   375→              </SelectContent>
+   376→            </Select>
+   377→          </div>
+   378→
+   379→          <div className="space-y-2">
+   380→            <Label htmlFor="filing-date">Filing Date</Label>
+   381→            <Input
+   382→              id="filing-date"
+   383→              type="date"
+   384→              value={filingDate}
+   385→              onChange={(e) => setFilingDate(e.target.value)}
+   386→            />
+   387→          </div>
+   388→
+   389→          <div className="space-y-2">
+   390→            <Label>Status</Label>
+   391→            <Select value={status} onValueChange={setStatus}>
+   392→              <SelectTrigger className="w-full">
+   393→                <SelectValue />
+   394→              </SelectTrigger>
+   395→              <SelectContent>
+   396→                {statusOptions.map((s) => (
+   397→                  <SelectItem key={s} value={s}>
+   398→                    {CASE_STATUS_LABELS[s] ?? s}
+   399→                  </SelectItem>
+   400→                ))}
+   401→              </SelectContent>
+   402→            </Select>
+   403→          </div>
+   404→
+   405→          <div className="space-y-2">
+   406→            <Label>Priority</Label>
+   407→            <Select value={priority} onValueChange={setPriority}>
+   408→              <SelectTrigger className="w-full">
+   409→                <SelectValue />
+   410→              </SelectTrigger>
+   411→              <SelectContent>
+   412→                {CASE_PRIORITIES.map((p) => (
+   413→                  <SelectItem key={p} value={p}>
+   414→                    {PRIORITY_LABELS[p] ?? p}
+   415→                  </SelectItem>
+   416→                ))}
+   417→              </SelectContent>
+   418→            </Select>
+   419→          </div>
+   420→
+   421→          <div className="space-y-2">
+   422→            <Label htmlFor="opposite-party">Opposite Party</Label>
+   423→            <Input
+   424→              id="opposite-party"
+   425→              value={oppositeParty}
+   426→              onChange={(e) => setOppositeParty(e.target.value)}
+   427→              placeholder="Name of the opposing party"
+   428→            />
+   429→          </div>
+   430→
+   431→          <div className="space-y-2 sm:col-span-2">
+   432→            <Label htmlFor="case-description">Description</Label>
+   433→            <Textarea
+   434→              id="case-description"
+   435→              value={description}
+   436→              onChange={(e) => setDescription(e.target.value)}
+   437→              placeholder="Brief summary of the matter…"
+   438→              rows={3}
+   439→            />
+   440→          </div>
+   441→
+   442→          {closing ? (
+   443→            <>
+   444→              <div className="space-y-2 sm:col-span-2">
+   445→                <Label htmlFor="resolution-summary">
+   446→                  Resolution Summary <span className="text-rose-600">*</span>
+   447→                </Label>
+   448→                <Textarea
+   449→                  id="resolution-summary"
+   450→                  value={resolutionSummary}
+   451→                  onChange={(e) => setResolutionSummary(e.target.value)}
+   452→                  placeholder="How was the case resolved?"
+   453→                  rows={3}
+   454→                  required
+   455→                />
+   456→                <p className="text-xs text-muted-foreground">
+   457→                  Example: Case resolved through mutual settlement.
+   458→                </p>
+   459→              </div>
+   460→              <div className="space-y-2">
+   461→                <Label htmlFor="case-outcome">Outcome</Label>
+   462→                <Input
+   463→                  id="case-outcome"
+   464→                  value={outcome}
+   465→                  onChange={(e) => setOutcome(e.target.value)}
+   466→                  placeholder="e.g. Won, Settled, Dismissed"
+   467→                />
+   468→              </div>
+   469→            </>
+   470→          ) : null}
+   471→        </div>
+   472→
+   473→        <DialogFooter>
+   474→          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+   475→            Cancel
+   476→          </Button>
+   477→          <Button onClick={() => void handleSubmit()} disabled={pending}>
+   478→            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+   479→            {isEditing ? "Save Changes" : "Register Case"}
+   480→          </Button>
+   481→        </DialogFooter>
+   482→      </DialogContent>
+   483→    </Dialog>
+   484→  )
+   485→}
+   486→
+   487→/* ------------------------------------------------------------------ */
+   488→/*                              List view                              */
+   489→/* ------------------------------------------------------------------ */
+   490→
+   491→export default function CasesView({ user, navigate }: ViewProps) {
+   492→  const [view, setView] = useState<ViewTab>("all")
+   493→  const [status, setStatus] = useState("")
+   494→  const [type, setType] = useState("")
+   495→  const [priority, setPriority] = useState("")
+   496→  const [searchInput, setSearchInput] = useState("")
+   497→  const [search, setSearch] = useState("")
+   498→  const [formOpen, setFormOpen] = useState(false)
+   499→
+   500→  // 300ms debounce for the search box
+   501→  useEffect(() => {
+   502→    const t = setTimeout(() => setSearch(searchInput.trim()), 300)
+   503→    return () => clearTimeout(t)
+   504→  }, [searchInput])
+   505→
+   506→  const url = useMemo(() => {
+   507→    const qs = new URLSearchParams()
+   508→    qs.set("view", view)
+   509→    if (status) qs.set("status", status)
+   510→    if (type) qs.set("type", type)
+   511→    if (priority) qs.set("priority", priority)
+   512→    if (search) qs.set("search", search)
+   513→    return `/api/cases?${qs.toString()}`
+   514→  }, [view, status, type, priority, search])
+   515→
+   516→  const { data, loading, error, refetch } = useApiData<CaseListDTO[]>(url)
+   517→  const rows = useMemo(() => (Array.isArray(data) ? data : []), [data])
+   518→
+   519→  const canCreate = user.role === "ADMIN" || user.role === "STAFF"
+   520→  const hasFilters = Boolean(status || type || priority || searchInput)
+   521→
+   522→  const clearFilters = () => {
+   523→    setStatus("")
+   524→    setType("")
+   525→    setPriority("")
+   526→    setSearchInput("")
+   527→  }
+   528→
+   529→  const loadingFirst = loading && !data && !error
+   530→
+   531→  return (
+   532→    <div className="space-y-6">
+   533→      <PageHeader
+   534→        title="Case Management"
+   535→        description="Register, track and resolve cases across Bangladesh courts."
+   536→      >
+   537→        <div className="flex items-center rounded-lg border border-stone-200/80 bg-white p-0.5">
+   538→          {VIEW_TABS.map((tab) => (
+   539→            <Button
+   540→              key={tab.key}
+   541→              size="sm"
+   542→              variant={view === tab.key ? "default" : "outline"}
+   543→              className={cn("h-7 border-0 px-3", view !== tab.key && "bg-transparent shadow-none")}
+   544→              onClick={() => setView(tab.key)}
+   545→            >
+   546→              {tab.label}
+   547→            </Button>
+   548→          ))}
+   549→        </div>
+   550→        {canCreate ? (
+   551→          <Button onClick={() => setFormOpen(true)}>
+   552→            <Plus className="h-4 w-4" /> New Case
+   553→          </Button>
+   554→        ) : null}
+   555→      </PageHeader>
+   556→
+   557→      {/* Filter row */}
+   558→      <div className="flex flex-wrap items-center gap-2">
+   559→        <div className="relative min-w-[15rem] flex-1 sm:max-w-xs">
+   560→          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+   561→          <Input
+   562→            value={searchInput}
+   563→            onChange={(e) => setSearchInput(e.target.value)}
+   564→            placeholder="Search case no, title, opposite party…"
+   565→            aria-label="Search cases"
+   566→            className="pl-8"
+   567→          />
+   568→        </div>
+   569→        <Select value={status || "all"} onValueChange={(v) => setStatus(v === "all" ? "" : v)}>
+   570→          <SelectTrigger className="w-[10.5rem]">
+   571→            <SelectValue placeholder="All statuses" />
+   572→          </SelectTrigger>
+   573→          <SelectContent>
+   574→            <SelectItem value="all">All statuses</SelectItem>
+   575→            {Object.entries(CASE_STATUS_LABELS).map(([key, label]) => (
+   576→              <SelectItem key={key} value={key}>
+   577→                {label}
+   578→              </SelectItem>
+   579→            ))}
+   580→          </SelectContent>
+   581→        </Select>
+   582→        <Select value={type || "all"} onValueChange={(v) => setType(v === "all" ? "" : v)}>
+   583→          <SelectTrigger className="w-[11.5rem]">
+   584→            <SelectValue placeholder="All types" />
+   585→          </SelectTrigger>
+   586→          <SelectContent>
+   587→            <SelectItem value="all">All types</SelectItem>
+   588→            {CASE_TYPES.map((t) => (
+   589→              <SelectItem key={t} value={t}>
+   590→                {t}
+   591→              </SelectItem>
+   592→            ))}
+   593→          </SelectContent>
+   594→        </Select>
+   595→        <Select value={priority || "all"} onValueChange={(v) => setPriority(v === "all" ? "" : v)}>
+   596→          <SelectTrigger className="w-[9.5rem]">
+   597→            <SelectValue placeholder="Any priority" />
+   598→          </SelectTrigger>
+   599→          <SelectContent>
+   600→            <SelectItem value="all">Any priority</SelectItem>
+   601→            {CASE_PRIORITIES.map((p) => (
+   602→              <SelectItem key={p} value={p}>
+   603→                {PRIORITY_LABELS[p] ?? p}
+   604→              </SelectItem>
+   605→            ))}
+   606→          </SelectContent>
+   607→        </Select>
+   608→        {hasFilters ? (
+   609→          <Button variant="ghost" size="sm" onClick={clearFilters}>
+   610→            <X className="h-4 w-4" /> Clear
+   611→          </Button>
+   612→        ) : null}
+   613→      </div>
+   614→
+   615→      {loadingFirst ? (
+   616→        <LoadingBlock rows={6} />
+   617→      ) : error && !data ? (
+   618→        <EmptyState icon={AlertTriangle} title="Could not load cases" description={error} />
+   619→      ) : (
+   620→        <Card className="border-stone-200/80">
+   621→          <CardHeader>
+   622→            <CardTitle className="text-base font-semibold tracking-tight">Case Files</CardTitle>
+   623→            <CardDescription>
+   624→              {view === "all" ? "All cases" : view === "active" ? "Active, pending & on hold cases" : "Resolved & closed cases"}
+   625→            </CardDescription>
+   626→            <CardAction>
+   627→              <Badge variant="outline" className="border-stone-200 bg-stone-50 text-stone-600">
+   628→                {rows.length} {rows.length === 1 ? "case" : "cases"}
+   629→              </Badge>
+   630→            </CardAction>
+   631→          </CardHeader>
+   632→          <CardContent className="px-0 pb-2">
+   633→            {rows.length === 0 ? (
+   634→              <div className="px-6 pb-4">
+   635→                <EmptyState
+   636→                  icon={FolderKanban}
+   637→                  title="No cases found"
+   638→                  description={
+   639→                    hasFilters
+   640→                      ? "Try adjusting or clearing the filters."
+   641→                      : "Register your first case to get started."
+   642→                  }
+   643→                />
+   644→              </div>
+   645→            ) : (
+   646→              <Table>
+   647→                <TableHeader>
+   648→                  <TableRow className="hover:bg-transparent">
+   649→                    <TableHead className="pl-6">Case No</TableHead>
+   650→                    <TableHead>Title</TableHead>
+   651→                    <TableHead>Type</TableHead>
+   652→                    <TableHead>Client</TableHead>
+   653→                    <TableHead>Lawyer</TableHead>
+   654→                    <TableHead>Court</TableHead>
+   655→                    <TableHead>Next Hearing</TableHead>
+   656→                    <TableHead>Priority</TableHead>
+   657→                    <TableHead>Status</TableHead>
+   658→                    <TableHead className="pr-6">Filed</TableHead>
+   659→                  </TableRow>
+   660→                </TableHeader>
+   661→                <TableBody>
+   662→                  {rows.map((c) => {
+   663→                    const rel = c.nextHearingDate ? formatRelativeDay(c.nextHearingDate) : null
+   664→                    return (
+   665→                      <TableRow
+   666→                        key={c.id}
+   667→                        role="button"
+   668→                        tabIndex={0}
+   669→                        aria-label={`Open case ${c.caseNumber}`}
+   670→                        className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
+   671→                        onClick={() => navigate("case-detail", { id: c.id })}
+   672→                        onKeyDown={(e) => {
+   673→                          if (e.key === "Enter" || e.key === " ") {
+   674→                            e.preventDefault()
+   675→                            navigate("case-detail", { id: c.id })
+   676→                          }
+   677→                        }}
+   678→                      >
+   679→                        <TableCell className="pl-6 font-mono font-semibold">{c.caseNumber}</TableCell>
+   680→                        <TableCell>
+   681→                          <div className="max-w-[16rem]">
+   682→                            <p className="truncate font-medium">{c.title}</p>
+   683→                            {c.oppositeParty ? (
+   684→                              <p className="truncate text-xs text-muted-foreground">vs {c.oppositeParty}</p>
+   685→                            ) : null}
+   686→                          </div>
+   687→                        </TableCell>
+   688→                        <TableCell className="text-sm">{c.type}</TableCell>
+   689→                        <TableCell className="text-sm">{c.client?.name ?? "—"}</TableCell>
+   690→                        <TableCell className="text-sm">
+   691→                          {c.lawyer?.name ?? <span className="italic text-muted-foreground">Unassigned</span>}
+   692→                        </TableCell>
+   693→                        <TableCell>
+   694→                          <p className="max-w-[12rem] truncate text-sm text-muted-foreground">{c.court}</p>
+   695→                        </TableCell>
+   696→                        <TableCell>
+   697→                          {c.nextHearingDate && rel ? (
+   698→                            <div>
+   699→                              <p className={cn("text-sm font-medium", rel === "Today" && "text-emerald-700")}>{rel}</p>
+   700→                              <p className="text-xs text-muted-foreground">{formatDate(c.nextHearingDate)}</p>
+   701→                            </div>
+   702→                          ) : (
+   703→                            <span className="text-sm text-muted-foreground">—</span>
+   704→                          )}
+   705→                        </TableCell>
+   706→                        <TableCell>
+   707→                          <StatusBadge map={priorityStyles} value={c.priority} />
+   708→                        </TableCell>
+   709→                        <TableCell>
+   710→                          <StatusBadge map={caseStatusStyles} value={c.status} />
+   711→                        </TableCell>
+   712→                        <TableCell className="pr-6 text-sm text-muted-foreground">{formatDate(c.filingDate)}</TableCell>
+   713→                      </TableRow>
+   714→                    )
+   715→                  })}
+   716→                </TableBody>
+   717→              </Table>
+   718→            )}
+   719→          </CardContent>
+   720→        </Card>
+   721→      )}
+   722→
+   723→      <CaseFormDialog
+   724→        open={formOpen}
+   725→        onOpenChange={setFormOpen}
+   726→        onSaved={refetch}
+   727→        editing={null}
+   728→        actorRole={user.role}
+   729→      />
+   730→    </div>
+   731→  )
+   732→}
+   733→
