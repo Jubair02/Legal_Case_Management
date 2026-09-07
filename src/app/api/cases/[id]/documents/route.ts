@@ -26,7 +26,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const { id } = await params
     await assertCaseWriteAccess(user, id)
 
-    const form = await request.formData()
+    let form: FormData
+    try {
+      form = await request.formData()
+    } catch {
+      throw new ApiError("Expected a multipart/form-data upload with a \"file\" field.", 400)
+    }
     const file = form.get("file")
     if (!(file instanceof File)) {
       throw new ApiError('"file" is required.', 422)

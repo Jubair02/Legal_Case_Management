@@ -71,10 +71,14 @@ export async function GET(request: Request) {
       if (caseId) invoiceFilter.caseId = caseId
       where.invoice = invoiceFilter
     } else {
-      // ADMIN: optional filters.
+      // ADMIN: optional filters (all combine when supplied together).
       if (invoiceId) where.invoiceId = invoiceId
-      if (caseId) where.invoice = { caseId }
-      if (clientId) where.invoice = { clientId }
+      if (caseId || clientId) {
+        where.invoice = {
+          ...(caseId ? { caseId } : {}),
+          ...(clientId ? { clientId } : {}),
+        }
+      }
     }
 
     const rows = await db.payment.findMany({
@@ -93,86 +97,93 @@ export async function POST(request: Request) {
     const body = await readJson<Record<string, unknown>>(request)
 
     const invoiceId = requireString(body.invoiceId, "invoiceId")
-    const invoice = await db.invoice.findUnique({
-      where: { id: invoiceId },
-      include: {
-        case: {
-          select: { caseNumber: true, title: true, lawyer: { select: { userId: true } } },
+
+    // Read-check-create-recompute runs inside one transaction so two concurrent
+    // payments can never both pass the remaining-balance check (TOCTOU).
+    const { created, invoice } = await db.$transaction(async (tx) => {
+      const inv = await tx.invoice.findUnique({
+        where: { id: invoiceId },
+        include: {
+          case: {
+            select: { caseNumber: true, title: true, lawyer: { select: { userId: true } } },
+          },
+          client: { select: { id: true, name: true } },
+          payments: { select: { amount: true } },
         },
-        client: { select: { id: true, name: true } },
-        payments: { select: { amount: true } },
-      },
+      })
+      if (!inv) throw new ApiError("Invoice not found.", 404)
+
+      // Lawyers can only record payments on invoices of their own cases.
+      if (user.role === "LAWYER" && inv.case?.lawyer?.userId !== user.id) {
+        throw new ApiError("You can only record payments for your own cases.", 403)
+      }
+
+      if (inv.status === "CANCELLED") {
+        throw new ApiError("This invoice has been cancelled — payments cannot be recorded against it.", 409)
+      }
+
+      const amount = requireNumber(body.amount, "amount")
+      if (!(amount > 0)) throw new ApiError('"amount" must be greater than 0.', 422)
+
+      const paymentMethod = requireString(body.paymentMethod, "paymentMethod")
+      if (!PAYMENT_METHODS.includes(paymentMethod as never)) {
+        throw new ApiError("Invalid payment method.", 422)
+      }
+
+      const paid = inv.payments.reduce((s, p) => s + p.amount, 0)
+      const remaining = Math.max(0, Math.round((inv.amount - paid) * 100) / 100)
+      if (amount > remaining + 0.005) {
+        throw new ApiError(
+          `Payment exceeds remaining due of ৳${remaining.toLocaleString("en-US")}`,
+          422
+        )
+      }
+
+      const paymentDate = parseDateOnly(body.paymentDate) ?? new Date()
+      const referenceNumber = optionalString(body.referenceNumber)
+      const notes = optionalString(body.notes)
+
+      const createdPayment = await tx.payment.create({
+        data: {
+          invoiceId,
+          amount,
+          paymentMethod,
+          paymentDate,
+          referenceNumber,
+          notes,
+          receivedById: user.id,
+          receivedByName: user.name,
+        },
+        include: paymentInclude,
+      })
+
+      // recompute + persist invoice status
+      const newPaid = paid + amount
+      const todayStart = dhakaDayRange(dhakaDayOffset(0)).start
+      let status: string
+      if (newPaid >= inv.amount - 0.005) {
+        status = "PAID"
+      } else if (newPaid > 0.005) {
+        status = "PARTIAL"
+      } else if (inv.dueDate && inv.dueDate.getTime() < todayStart.getTime()) {
+        status = "OVERDUE"
+      } else {
+        status = "UNPAID"
+      }
+      if (status !== inv.status) {
+        await tx.invoice.update({ where: { id: invoiceId }, data: { status } })
+      }
+
+      return { created: createdPayment, invoice: inv }
     })
-    if (!invoice) throw new ApiError("Invoice not found.", 404)
-
-    // Lawyers can only record payments on invoices of their own cases.
-    if (user.role === "LAWYER" && invoice.case?.lawyer?.userId !== user.id) {
-      throw new ApiError("You can only record payments for your own cases.", 403)
-    }
-
-    if (invoice.status === "CANCELLED") {
-      throw new ApiError("This invoice has been cancelled — payments cannot be recorded against it.", 409)
-    }
-
-    const amount = requireNumber(body.amount, "amount")
-    if (!(amount > 0)) throw new ApiError('"amount" must be greater than 0.', 422)
-
-    const paymentMethod = requireString(body.paymentMethod, "paymentMethod")
-    if (!PAYMENT_METHODS.includes(paymentMethod as never)) {
-      throw new ApiError("Invalid payment method.", 422)
-    }
-
-    const paid = invoice.payments.reduce((s, p) => s + p.amount, 0)
-    const remaining = Math.max(0, Math.round((invoice.amount - paid) * 100) / 100)
-    if (amount > remaining + 0.005) {
-      throw new ApiError(
-        `Payment exceeds remaining due of ৳${remaining.toLocaleString("en-US")}`,
-        422
-      )
-    }
-
-    const paymentDate = parseDateOnly(body.paymentDate) ?? new Date()
-    const referenceNumber = optionalString(body.referenceNumber)
-    const notes = optionalString(body.notes)
-
-    const created = await db.payment.create({
-      data: {
-        invoiceId,
-        amount,
-        paymentMethod,
-        paymentDate,
-        referenceNumber,
-        notes,
-        receivedById: user.id,
-        receivedByName: user.name,
-      },
-      include: paymentInclude,
-    })
-
-    // recompute + persist invoice status
-    const newPaid = paid + amount
-    const todayStart = dhakaDayRange(dhakaDayOffset(0)).start
-    let status: string
-    if (newPaid >= invoice.amount - 0.005) {
-      status = "PAID"
-    } else if (newPaid > 0.005) {
-      status = "PARTIAL"
-    } else if (invoice.dueDate && invoice.dueDate.getTime() < todayStart.getTime()) {
-      status = "OVERDUE"
-    } else {
-      status = "UNPAID"
-    }
-    if (status !== invoice.status) {
-      await db.invoice.update({ where: { id: invoiceId }, data: { status } })
-    }
 
     const [clientPortalUserId, admins] = await Promise.all([
       clientUserId(invoice.clientId),
       adminIds(),
     ])
     await notifyUsers([clientPortalUserId, ...admins.filter((uid) => uid !== user.id)], {
-      title: `Payment Received — ৳${amount.toLocaleString("en-US")}`,
-      message: `${paymentMethod} payment received for invoice ${invoice.invoiceNumber}.${
+      title: `Payment Received — ৳${created.amount.toLocaleString("en-US")}`,
+      message: `${created.paymentMethod} payment received for invoice ${invoice.invoiceNumber}.${
         invoice.case ? ` Case ${invoice.case.caseNumber}.` : ""
       }`,
       type: "BILLING",

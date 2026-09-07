@@ -1,6 +1,7 @@
 import { db } from "@/lib/db"
 import { ApiError, handle, ok, readJson, requireAuth, requireString } from "@/lib/api-helpers"
 import { hashPassword, MAX_PASSWORD_LENGTH, verifyPassword } from "@/lib/password"
+import { setSessionCookie, signSession } from "@/lib/auth"
 
 /**
  * POST /api/auth/change-password
@@ -30,10 +31,22 @@ export async function POST(request: Request) {
       throw new ApiError("Your current password is incorrect.", 401, "WRONG_PASSWORD")
     }
 
-    await db.user.update({
+    // Bump sessionVersion so every previously issued token (other devices or
+    // stolen cookies) stops working, then re-issue the caller's cookie so the
+    // current session stays signed in.
+    const updated = await db.user.update({
       where: { id: user.id },
-      data: { password: hashPassword(newPassword) },
+      data: { password: hashPassword(newPassword), sessionVersion: { increment: 1 } },
+      select: { id: true, email: true, role: true, sessionVersion: true },
     })
+
+    const token = await signSession({
+      sub: updated.id,
+      email: updated.email,
+      role: updated.role,
+      sessionVersion: updated.sessionVersion,
+    })
+    await setSessionCookie(token)
 
     return ok({ ok: true })
   })

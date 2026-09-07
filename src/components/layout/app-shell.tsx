@@ -37,6 +37,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiGet, apiSend } from "@/lib/api-client"
 import { ROLE_LABELS } from "@/lib/constants"
+import { NOTIFICATIONS_CHANGED_EVENT } from "@/lib/events"
 import { cn, formatDateTime, initials } from "@/lib/utils"
 import type { NotificationDTO, SessionUser, ViewKey, ViewParams, ViewProps } from "@/lib/types"
 
@@ -248,6 +249,14 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
       /* silent */
     }
   }, [])
+
+  // Other surfaces (the full Notifications page) mark items read too — listen
+  // for their signal so the badge never goes stale until the next poll.
+  useEffect(() => {
+    const handler = () => void refreshCount()
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, handler)
+    return () => window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, handler)
+  }, [refreshCount])
 
   const handleClick = useCallback(
     async (n: NotificationDTO) => {

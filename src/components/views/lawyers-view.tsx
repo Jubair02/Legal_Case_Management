@@ -52,6 +52,7 @@ import type {
   ViewProps,
 } from "@/lib/types"
 import { caseStatusStyles, formatRelativeDay, type StatusStyle } from "@/lib/utils"
+import { isValidEmail } from "@/lib/validation"
 
 type NavigateFn = (view: ViewKey, params?: ViewParams) => void
 
@@ -309,8 +310,8 @@ export function LawyerFormDialog({ open, onOpenChange, lawyer, onSaved }: Lawyer
       return
     }
     if (!isEdit && portal) {
-      if (!email.trim()) {
-        toast.error("Email is required to create a portal account.")
+      if (!email.trim() || !isValidEmail(email)) {
+        toast.error("Please enter a valid email address.")
         return
       }
       if (password.length < 6) {

@@ -53,6 +53,7 @@ import { apiSend } from "@/lib/api-client"
 import { ROLES, ROLE_LABELS } from "@/lib/constants"
 import type { UserDTO, ViewProps } from "@/lib/types"
 import { cn, formatDate, initials } from "@/lib/utils"
+import { isValidEmail } from "@/lib/validation"
 
 const ALL = "ALL"
 
@@ -127,7 +128,7 @@ function UserFormDialog({
       return
     }
     if (!isEdit) {
-      if (!email.trim() || !email.includes("@")) {
+      if (!isValidEmail(email)) {
         toast.error("Please enter a valid email address.")
         return
       }
@@ -310,6 +311,7 @@ function UsersPanel() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search name, email or phone…"
+            aria-label="Search users"
             className="pl-8"
           />
         </div>

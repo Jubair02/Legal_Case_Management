@@ -45,7 +45,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { apiSend, apiUpload } from "@/lib/api-client"
-import { DOCUMENT_CATEGORIES, DOCUMENT_TYPES, MAX_FILE_SIZE } from "@/lib/constants"
+import { DOCUMENT_CATEGORIES, DOCUMENT_TYPES, MAX_FILE_SIZE, UPLOAD_ACCEPT } from "@/lib/constants"
 import type { CaseDetailDTO, CaseListDTO, DocumentDTO, ViewProps } from "@/lib/types"
 import { cn, formatDate, formatFileSize } from "@/lib/utils"
 
@@ -140,7 +140,7 @@ function UploadDocumentDialog({
             <Input
               id="doc-file"
               type="file"
-              accept=".pdf,.doc,.docx,image/*,.txt"
+              accept={UPLOAD_ACCEPT}
               onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
             />
             {file ? (
@@ -223,7 +223,12 @@ export default function DocumentsView({ user }: ViewProps) {
   const isClient = user.role === "CLIENT"
   const canWrite = user.role === "ADMIN" || user.role === "STAFF" || user.role === "LAWYER"
 
-  const { data: casesData, loading: casesLoading } = useApiData<CaseListDTO[]>("/api/cases")
+  const {
+    data: casesData,
+    loading: casesLoading,
+    error: casesError,
+    refetch: refetchCases,
+  } = useApiData<CaseListDTO[]>("/api/cases")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [caseSearch, setCaseSearch] = useState("")
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -294,6 +299,7 @@ export default function DocumentsView({ user }: ViewProps) {
                 value={caseSearch}
                 onChange={(e) => setCaseSearch(e.target.value)}
                 placeholder="Search cases…"
+                aria-label="Search cases"
                 className="pl-8"
               />
             </div>
@@ -303,6 +309,14 @@ export default function DocumentsView({ user }: ViewProps) {
                   {[0, 1, 2, 3].map((i) => (
                     <Skeleton key={i} className="h-12 w-full" />
                   ))}
+                </div>
+              ) : casesError && cases.length === 0 ? (
+                <div className="flex flex-col items-center gap-2 py-6 text-center">
+                  <AlertTriangle className="h-5 w-5 text-amber-500" />
+                  <p className="text-xs text-muted-foreground">Could not load cases.</p>
+                  <Button variant="outline" size="sm" onClick={refetchCases}>
+                    Try again
+                  </Button>
                 </div>
               ) : filteredCases.length === 0 ? (
                 <p className="py-6 text-center text-xs text-muted-foreground">

@@ -401,3 +401,37 @@ Stage Summary:
 - QA-FIX-1 verified except 2 partial gaps: (M-1) /api/dashboard CLIENT nextHearing still leaks judge/notes/summary/courtOrder/nextAction (strip was applied to hearings+case-detail only); (M3) badge refresh after mark-read works from bell dropdown only, not the Notifications page.
 - New findings: 5 MEDIUM (dashboard hearing leak; case rows not keyboard-accessible; lawyer case-edit fields silently discarded (inputs enabled but never sent); badge desync from Notifications page; documents-view case-list error -> wrong empty state) + LOW set (password>max 500 on 3 admin paths; EMAIL_RE gaps; XFF trust; payment POST no $transaction; missing FK indexes; docs delete order; non-multipart 400; upload accept includes svg; dead code ui/toast+toaster+use-toast, ui/sidebar+use-mobile, CASE_TYPES_WITH_OTHER; a11y nits; .env lacks AUTH_SECRET for prod, no .env.example).
 - Data state: 6 seed cases / 6 invoices intact; LB-303 restored byte-exact; lint clean; server healthy.
+
+---
+Task ID: QA-FIX-2
+Agent: Z.ai Code (main, second fix pass)
+Task: Fix all remaining items from QA-REVIEW-2 (5 MEDIUM + full LOW list), with dynamic verification.
+
+Work Log:
+- Schema: added 8 FK indexes (Case.clientId/lawyerId, CaseDocument.caseId, Hearing.caseId+hearingDate, Invoice.clientId/caseId, Payment.invoiceId, CaseUpdate.caseId, Notification.dedupeKey) + User.sessionVersion Int @default(0); `bunx prisma db push` OK.
+- M-1: dashboard hearingDTO gained forClient flag; CLIENT nextHearing now omits judge/notes/summary/courtOrder/nextAction (matches /api/hearings contract). Runtime-verified CLIENT keys stripped, ADMIN internals intact.
+- M1: case list rows now role=button, tabIndex=0, aria-label, Enter/Space handler, focus-visible ring.
+- M2: CaseFormDialog edit payload now always diffs+sends district/filingDate/oppositeParty/description for ALL roles (server blocks only assignment for LAWYER). Runtime-verified lawyer description edit persists via UI; data restored after test.
+- M3: new src/lib/events.ts NOTIFICATIONS_CHANGED_EVENT; Notifications page dispatches after mark-read/mark-all; bell listens and re-polls unread-count instantly. Browser-verified: badge "3" -> cleared immediately.
+- M4: documents-view case-picker error state (AlertTriangle + Try again -> refetchCases).
+- L-1: password max-length (128) checks added to users/[id] PATCH, lawyers POST portal, clients POST portal (500 -> 422; runtime-verified).
+- L-2: new src/lib/validation.ts (EMAIL_RE, isValidEmail); applied to users (import swap), clients POST/[id] PATCH, lawyers POST/[id] PATCH; client-side isValidEmail added to clients/lawyers/settings views.
+- L-3: rate-limit email-only backstop bucket (XFF rotation can no longer bypass); runtime-verified 429 on 9th attempt with rotating XFF.
+- L-4: payment POST fully wrapped in db.$transaction (read-check-create-recompute atomic).
+- L-5: DELETE /api/payments/[id] (ADMIN-only): deletes payment + recomputes invoice status in tx. Runtime-verified lifecycle: POST 100 -> PARTIAL, DELETE -> back to UNPAID; LAWYER/STAFF/CLIENT -> 403. UI: admin trash button + ConfirmDialog in Payments tab.
+- L-6: documents/[id] DELETE now deletes DB row before unlinking file; cases/[id]/documents POST wraps formData() -> 400 on non-multipart (runtime-verified); ADMIN payments GET combines clientId+caseId filters (no overwrite).
+- L-7: .env now sets strong AUTH_SECRET (dev uses it, not fallback); .env.example created.
+- L-10: JWT carries sessionVersion; getSessionUser rejects stale versions; change-password bumps version and re-issues caller cookie. Runtime-verified: session B killed after A changes password (401), A survives via fresh cookie; seed passwords restored.
+- UX: "Record Payment" hidden for PAID/CANCELLED invoices (browser-verified); upload accept attributes now use shared UPLOAD_ACCEPT constant (no image/*, excludes svg); case-detail HearingUpdateDialog now clears emptied fields (same contract as hearings page dialog).
+- A11y: aria-pressed on hearing + notification filter chips; aria-labels on cases/documents/billing/settings search inputs.
+- Dead code deleted: ui/toast.tsx, ui/toaster.tsx, hooks/use-toast.ts, ui/sidebar.tsx, hooks/use-mobile.ts (zero importers verified).
+- Dev server: sandbox was reaping background children; dev server now runs via python double-fork daemon (survives shell exit), fresh Prisma client + AUTH_SECRET loaded.
+
+Verification:
+- bun run lint clean; dev.log error-free; browser + curl suites all green (details above).
+- Final state: 6 cases, 6 invoices (OVERDUE x1, PAID x4, UNPAID x1), 5 payments = seed state; client unread notifications restored to 3; LB-303 description byte-exact; passwords unchanged.
+
+Stage Summary:
+- All QA-REVIEW-2 findings fixed (5 MEDIUM + LOW list) except intentionally-skipped product choices: pagination (MVP-acceptable), 27 unused stock shadcn components (kept), "today" hearings incl. CANCELLED/COMPLETED (ambiguous), follow-up-hearing notification (minor).
+- Session model now: password change revokes other sessions (7-day JWTs no longer survive password changes).
+- New endpoint: DELETE /api/payments/[id] (ADMIN) closes the mis-recorded-payment product gap.

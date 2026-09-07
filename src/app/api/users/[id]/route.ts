@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireString } from "@/lib/api-helpers"
 import { ROLES } from "@/lib/constants"
-import { hashPassword } from "@/lib/password"
+import { hashPassword, MAX_PASSWORD_LENGTH } from "@/lib/password"
 
 const userInclude = {
   lawyerProfile: { select: { name: true } },
@@ -62,6 +62,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (body.password !== undefined && body.password !== null) {
       const password = typeof body.password === "string" ? body.password : ""
       if (password.length < 6) throw new ApiError("Password must be at least 6 characters.", 422)
+      if (password.length > MAX_PASSWORD_LENGTH) {
+        throw new ApiError(`Password must be at most ${MAX_PASSWORD_LENGTH} characters.`, 422)
+      }
       data.password = hashPassword(password)
     }
 

@@ -37,21 +37,30 @@ function keyFor(request: Request, email: string): string {
   return `${clientIp(request)}::${email}`
 }
 
-export function isRateLimited(request: Request, email: string): boolean {
-  const now = Date.now()
-  sweep(now)
-  const a = attempts.get(keyFor(request, email))
+/**
+ * Email-only bucket: a backstop that cannot be bypassed by rotating the
+ * spoofable X-Forwarded-For header — no matter which IP the attempts appear
+ * to come from, a single account locks after MAX_ATTEMPTS failures.
+ */
+function emailKey(email: string): string {
+  return `email::${email}`
+}
+
+function isBlocked(key: string, now: number): boolean {
+  const a = attempts.get(key)
   if (!a) return false
   if (a.blockedUntil && now < a.blockedUntil) return true
-  if (a.blockedUntil && now >= a.blockedUntil) {
-    attempts.delete(keyFor(request, email))
-  }
+  if (a.blockedUntil && now >= a.blockedUntil) attempts.delete(key)
   return false
 }
 
-export function recordFailedAttempt(request: Request, email: string): void {
+export function isRateLimited(request: Request, email: string): boolean {
   const now = Date.now()
-  const key = keyFor(request, email)
+  sweep(now)
+  return isBlocked(keyFor(request, email), now) || isBlocked(emailKey(email), now)
+}
+
+function recordAttempt(key: string, now: number): void {
   const a = attempts.get(key)
   if (!a || now - a.firstAt > WINDOW_MS) {
     attempts.set(key, { count: 1, firstAt: now })
@@ -63,6 +72,13 @@ export function recordFailedAttempt(request: Request, email: string): void {
   }
 }
 
+export function recordFailedAttempt(request: Request, email: string): void {
+  const now = Date.now()
+  recordAttempt(keyFor(request, email), now)
+  recordAttempt(emailKey(email), now)
+}
+
 export function clearAttempts(request: Request, email: string): void {
   attempts.delete(keyFor(request, email))
+  attempts.delete(emailKey(email))
 }

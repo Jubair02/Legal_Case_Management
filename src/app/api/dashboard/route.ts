@@ -39,23 +39,30 @@ type HearingRow = {
   case: { caseNumber: string; title: string }
 }
 
-function hearingDTO(h: HearingRow) {
-  return {
+function hearingDTO(h: HearingRow, forClient = false) {
+  const base = {
     id: h.id,
     caseId: h.caseId,
     caseNumber: h.case.caseNumber,
     caseTitle: h.case.title,
     hearingDate: h.hearingDate,
     court: h.court,
-    judge: h.judge,
     hearingType: h.hearingType,
     status: h.status,
+    nextHearingDate: h.nextHearingDate,
+    createdAt: h.createdAt,
+  }
+  if (forClient) {
+    // Internal work-product (judge, notes, orders, strategy) is not exposed to clients.
+    return base
+  }
+  return {
+    ...base,
+    judge: h.judge,
     notes: h.notes,
     summary: h.summary,
     courtOrder: h.courtOrder,
     nextAction: h.nextAction,
-    nextHearingDate: h.nextHearingDate,
-    createdAt: h.createdAt,
   }
 }
 
@@ -398,7 +405,7 @@ export async function GET() {
           }),
         ])
 
-      const nextHearing = nextHearingRows.length ? hearingDTO(nextHearingRows[0]) : null
+      const nextHearing = nextHearingRows.length ? hearingDTO(nextHearingRows[0], true) : null
       const outstandingInvoices = clientInvoices
         .map((inv) => invoiceDTO(inv, computeInvoiceStatus(inv, paidOf(inv), todayRange.start)))
         .filter((dto) => dto.status === "UNPAID" || dto.status === "PARTIAL" || dto.status === "OVERDUE")

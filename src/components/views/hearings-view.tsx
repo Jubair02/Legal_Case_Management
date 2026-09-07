@@ -616,6 +616,7 @@ export default function HearingsView({ user, navigate }: ViewProps) {
                 key={f.key}
                 type="button"
                 onClick={() => setFilter(f.key)}
+                aria-pressed={active}
                 className={cn(
                   "rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors",
                   active ? "bg-emerald-600 text-white shadow-xs" : "text-muted-foreground hover:bg-stone-100 hover:text-foreground"

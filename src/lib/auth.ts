@@ -21,10 +21,16 @@ export interface SessionPayload {
   sub: string // user id
   email: string
   role: string
+  /** Value of User.sessionVersion at issue time — checked on every request. */
+  sessionVersion?: number
 }
 
 export async function signSession(payload: SessionPayload): Promise<string> {
-  return await new SignJWT({ email: payload.email, role: payload.role })
+  return await new SignJWT({
+    email: payload.email,
+    role: payload.role,
+    ...(payload.sessionVersion !== undefined ? { sessionVersion: payload.sessionVersion } : {}),
+  })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject(payload.sub)
     .setIssuedAt()
@@ -40,6 +46,7 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
       sub: payload.sub,
       email: (payload.email as string) || "",
       role: (payload.role as string) || "",
+      sessionVersion: typeof payload.sessionVersion === "number" ? payload.sessionVersion : undefined,
     }
   } catch {
     return null
@@ -92,6 +99,9 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     },
   })
   if (!user || user.status !== "ACTIVE") return null
+  // Session revocation: a password change bumps sessionVersion, invalidating
+  // every token issued before it (old tokens carry the stale value).
+  if ((payload.sessionVersion ?? 0) !== user.sessionVersion) return null
   return {
     id: user.id,
     name: user.name,

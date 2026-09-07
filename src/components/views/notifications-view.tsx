@@ -20,6 +20,7 @@ import { useApiData } from "@/hooks/use-api-data"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { apiSend } from "@/lib/api-client"
+import { NOTIFICATIONS_CHANGED_EVENT } from "@/lib/events"
 import type { NotificationDTO, ViewProps } from "@/lib/types"
 import { cn, formatDateTime } from "@/lib/utils"
 
@@ -57,6 +58,8 @@ export default function NotificationsView({ navigate }: ViewProps) {
     try {
       await apiSend("POST", "/api/notifications/read-all")
       toast.success("All notifications marked as read")
+      // Let the header badge know the unread count dropped to zero.
+      window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED_EVENT))
       refetch()
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not mark notifications as read.")
@@ -69,6 +72,7 @@ export default function NotificationsView({ navigate }: ViewProps) {
     if (!n.isRead) {
       try {
         await apiSend("PATCH", `/api/notifications/${n.id}`, { isRead: true })
+        window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED_EVENT))
         refetch()
       } catch {
         // non-blocking: still allow navigation below
@@ -99,6 +103,7 @@ export default function NotificationsView({ navigate }: ViewProps) {
         <button
           type="button"
           onClick={() => setFilter("all")}
+          aria-pressed={filter === "all"}
           className={cn(
             "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
             filter === "all"
@@ -111,6 +116,7 @@ export default function NotificationsView({ navigate }: ViewProps) {
         <button
           type="button"
           onClick={() => setFilter("unread")}
+          aria-pressed={filter === "unread"}
           className={cn(
             "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
             filter === "unread"

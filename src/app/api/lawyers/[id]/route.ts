@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireNumber, requireString } from "@/lib/api-helpers"
 import { caseScopeWhere } from "@/lib/permissions"
+import { EMAIL_RE } from "@/lib/validation"
 
 const ACTIVE_CASE_STATUSES = ["ACTIVE", "PENDING", "ON_HOLD"]
 
@@ -99,6 +100,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     const emailRaw = optionalString(body.email)
     const newEmail = emailRaw ? emailRaw.toLowerCase() : null
+    if (newEmail && !EMAIL_RE.test(newEmail)) {
+      throw new ApiError("Please enter a valid email address.", 422)
+    }
     const nameChanged = typeof data.name === "string" && data.name !== lawyer.name
     const emailChanged =
       body.email !== undefined && newEmail !== (lawyer.email ? lawyer.email.toLowerCase() : null)

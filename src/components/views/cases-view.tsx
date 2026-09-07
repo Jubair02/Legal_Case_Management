@@ -199,22 +199,27 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
       if (closing) payload.resolutionSummary = resolutionSummary.trim()
       if (outcome.trim()) payload.outcome = outcome.trim()
     } else {
-      // Edit — only fields that were provided / actually changed
+      // Edit — only fields that were provided / actually changed.
+      // District / filing date / opposite party / description are editable by
+      // every role that can open this dialog (the server only blocks
+      // assignment changes for lawyers), so they are always diffed and sent.
       payload.title = title.trim()
       payload.type = type
       payload.court = court
       payload.status = status
       payload.priority = priority
       if (!isLawyer) {
+        // Only ADMIN/STAFF can change case assignment.
         if (clientId !== prev.client?.id) payload.clientId = clientId
         if ((lawyerId || null) !== (prev.lawyer?.id ?? null)) payload.lawyerId = lawyerId || null
-        if (district !== (prev.district ?? "")) payload.district = district.trim() || null
-        if ((filingDate || null) !== (prev.filingDate ? toDateInputValue(prev.filingDate) : null))
-          payload.filingDate = filingDate || null
-        if (oppositeParty.trim() !== (prev.oppositeParty ?? "")) payload.oppositeParty = oppositeParty.trim() || null
-        const prevDescription = "description" in prev ? (prev.description ?? "") : ""
-        if (description.trim() !== prevDescription) payload.description = description.trim() || null
       }
+      if (district !== (prev.district ?? "")) payload.district = district.trim() || null
+      if ((filingDate || null) !== (prev.filingDate ? toDateInputValue(prev.filingDate) : null))
+        payload.filingDate = filingDate || null
+      if (oppositeParty.trim() !== (prev.oppositeParty ?? ""))
+        payload.oppositeParty = oppositeParty.trim() || null
+      const prevDescription = "description" in prev ? (prev.description ?? "") : ""
+      if (description.trim() !== prevDescription) payload.description = description.trim() || null
       if (closing) {
         payload.resolutionSummary = resolutionSummary.trim()
         if (outcome.trim()) payload.outcome = outcome.trim()
@@ -557,6 +562,7 @@ export default function CasesView({ user, navigate }: ViewProps) {
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search case no, title, opposite party…"
+            aria-label="Search cases"
             className="pl-8"
           />
         </div>
@@ -658,8 +664,17 @@ export default function CasesView({ user, navigate }: ViewProps) {
                     return (
                       <TableRow
                         key={c.id}
-                        className="cursor-pointer"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Open case ${c.caseNumber}`}
+                        className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
                         onClick={() => navigate("case-detail", { id: c.id })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault()
+                            navigate("case-detail", { id: c.id })
+                          }
+                        }}
                       >
                         <TableCell className="pl-6 font-mono font-semibold">{c.caseNumber}</TableCell>
                         <TableCell>

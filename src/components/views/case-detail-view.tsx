@@ -38,6 +38,7 @@ import {
   HEARING_STATUS_LABELS,
   HEARING_TYPES,
   MAX_FILE_SIZE,
+  UPLOAD_ACCEPT,
 } from "@/lib/constants"
 import {
   caseStatusStyles,
@@ -387,12 +388,17 @@ function HearingUpdateDialog({
       toast.error("Hearing date is required.")
       return
     }
-    const body: Record<string, unknown> = { status, hearingDate }
-    if (summary.trim()) body.summary = summary.trim()
-    if (courtOrder.trim()) body.courtOrder = courtOrder.trim()
-    if (nextAction.trim()) body.nextAction = nextAction.trim()
-    if (nextHearingDate) body.nextHearingDate = nextHearingDate
-    if (notes.trim()) body.notes = notes.trim()
+    // Same contract as the Hearings page dialog: emptied fields clear the
+    // stored value (the server maps "" -> null).
+    const body: Record<string, unknown> = {
+      status,
+      hearingDate,
+      notes: notes.trim() || null,
+      summary: summary.trim() || null,
+      courtOrder: courtOrder.trim() || null,
+      nextAction: nextAction.trim() || null,
+      nextHearingDate: nextHearingDate || null,
+    }
     try {
       setPending(true)
       await apiSend("PATCH", `/api/hearings/${hearing.id}`, body)
@@ -587,7 +593,7 @@ function UploadDialog({
             <Input
               id="upload-file"
               type="file"
-              accept=".pdf,.doc,.docx,image/*,.txt"
+              accept={UPLOAD_ACCEPT}
               onChange={handleFileChange}
               className="file:mr-3 file:rounded-md file:border-0 file:bg-stone-100 file:px-3 file:py-1 file:text-sm file:font-medium"
             />

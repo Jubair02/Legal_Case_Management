@@ -3,8 +3,7 @@ import { db } from "@/lib/db"
 import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
 import { ROLES } from "@/lib/constants"
 import { hashPassword, MAX_PASSWORD_LENGTH } from "@/lib/password"
-
-export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+import { EMAIL_RE } from "@/lib/validation"
 
 const userInclude = {
   lawyerProfile: { select: { name: true } },

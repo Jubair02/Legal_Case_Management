@@ -4,6 +4,7 @@ import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireStr
 import { CLIENT_TYPES } from "@/lib/constants"
 import { caseScopeWhere } from "@/lib/permissions"
 import { dhakaDateKey } from "@/lib/dates"
+import { EMAIL_RE } from "@/lib/validation"
 
 const ACTIVE_CASE_STATUSES = ["ACTIVE", "PENDING", "ON_HOLD"]
 
@@ -169,7 +170,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (body.phone !== undefined) data.phone = optionalString(body.phone)
     if (body.email !== undefined) {
       const emailRaw = optionalString(body.email)
-      data.email = emailRaw ? emailRaw.toLowerCase() : null
+      const newEmail = emailRaw ? emailRaw.toLowerCase() : null
+      if (newEmail && !EMAIL_RE.test(newEmail)) {
+        throw new ApiError("Please enter a valid email address.", 422)
+      }
+      data.email = newEmail
     }
     if (body.nid !== undefined) data.nid = optionalString(body.nid)
     if (body.address !== undefined) data.address = optionalString(body.address)

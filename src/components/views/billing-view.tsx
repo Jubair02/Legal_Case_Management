@@ -675,6 +675,7 @@ function InvoicesTab({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search invoice number or client…"
+            aria-label="Search invoices"
             className="pl-8"
           />
         </div>
@@ -758,9 +759,11 @@ function InvoicesTab({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-48">
-                            <DropdownMenuItem onSelect={() => onRecordPayment(inv)}>
-                              <Banknote className="h-4 w-4" /> Record Payment
-                            </DropdownMenuItem>
+                            {inv.status !== "PAID" && inv.status !== "CANCELLED" ? (
+                              <DropdownMenuItem onSelect={() => onRecordPayment(inv)}>
+                                <Banknote className="h-4 w-4" /> Record Payment
+                              </DropdownMenuItem>
+                            ) : null}
                             <DropdownMenuItem onSelect={() => onViewDetails(inv)}>
                               <Eye className="h-4 w-4" /> View Details
                             </DropdownMenuItem>
@@ -823,12 +826,16 @@ function PaymentsTab({
   loading,
   error,
   isClient,
+  isAdmin,
+  onDeletePayment,
   onRetry,
 }: {
   payments: PaymentDTO[] | null
   loading: boolean
   error: string | null
   isClient: boolean
+  isAdmin: boolean
+  onDeletePayment: (p: PaymentDTO) => void
   onRetry: () => void
 }) {
   const [method, setMethod] = useState(ALL)
@@ -899,6 +906,7 @@ function PaymentsTab({
                 <TableHead>Method</TableHead>
                 <TableHead>Reference</TableHead>
                 <TableHead>Received By</TableHead>
+                {isAdmin ? <TableHead className="w-12" /> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -926,6 +934,19 @@ function PaymentsTab({
                     {p.referenceNumber || "—"}
                   </TableCell>
                   <TableCell className="text-muted-foreground">{p.receivedByName ?? "—"}</TableCell>
+                  {isAdmin ? (
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-rose-600 hover:text-rose-700"
+                        aria-label={`Delete payment of ${formatCurrency(p.amount)} on invoice ${p.invoiceNumber ?? ""}`}
+                        onClick={() => onDeletePayment(p)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  ) : null}
                 </TableRow>
               ))}
             </TableBody>
@@ -957,6 +978,7 @@ export default function BillingView({ user, navigate, params }: ViewProps) {
   const [detailsFor, setDetailsFor] = useState<InvoiceDTO | null>(null)
   const [cancelFor, setCancelFor] = useState<InvoiceDTO | null>(null)
   const [deleteFor, setDeleteFor] = useState<InvoiceDTO | null>(null)
+  const [deletePaymentFor, setDeletePaymentFor] = useState<PaymentDTO | null>(null)
   const [newOpen, setNewOpen] = useState(false)
 
   // STAFF: no financial access — keep fetches idle (null path) and show a guard.
@@ -1001,6 +1023,18 @@ export default function BillingView({ user, navigate, params }: ViewProps) {
     refetchInvoices()
   }
 
+  const deletePayment = async () => {
+    if (!deletePaymentFor) return
+    await apiSend<{ ok: boolean; invoiceStatus: string }>(
+      "DELETE",
+      `/api/payments/${deletePaymentFor.id}`
+    )
+    toast.success(
+      `Payment of ${formatCurrency(deletePaymentFor.amount)} removed — invoice status updated.`
+    )
+    refetchBoth()
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -1041,6 +1075,8 @@ export default function BillingView({ user, navigate, params }: ViewProps) {
             loading={paymentsQ.loading}
             error={paymentsQ.error}
             isClient={isClient}
+            isAdmin={isAdmin}
+            onDeletePayment={setDeletePaymentFor}
             onRetry={paymentsQ.refetch}
           />
         </TabsContent>
@@ -1097,6 +1133,23 @@ export default function BillingView({ user, navigate, params }: ViewProps) {
         confirmLabel="Delete"
         destructive
         onConfirm={deleteInvoice}
+      />
+      <ConfirmDialog
+        open={!!deletePaymentFor}
+        onOpenChange={(o) => {
+          if (!o) setDeletePaymentFor(null)
+        }}
+        title="Delete this payment record?"
+        description={
+          deletePaymentFor
+            ? `The ${formatCurrency(deletePaymentFor.amount)} payment on invoice ${
+                deletePaymentFor.invoiceNumber ?? ""
+              } will be removed and the invoice balance restored. This action cannot be undone.`
+            : undefined
+        }
+        confirmLabel="Delete Payment"
+        destructive
+        onConfirm={deletePayment}
       />
     </div>
   )

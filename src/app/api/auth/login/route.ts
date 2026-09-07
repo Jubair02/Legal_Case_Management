@@ -45,7 +45,12 @@ export async function POST(request: Request) {
 
     clearAttempts(request, email)
 
-    const token = await signSession({ sub: user.id, email: user.email, role: user.role })
+    const token = await signSession({
+      sub: user.id,
+      email: user.email,
+      role: user.role,
+      sessionVersion: user.sessionVersion,
+    })
     await setSessionCookie(token)
 
     return ok({

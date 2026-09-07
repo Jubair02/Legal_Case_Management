@@ -81,6 +81,9 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
       await assertCaseWriteAccess(user, doc.caseId)
     }
 
+    // Delete the DB row first so a failed delete never leaves a dangling row
+    // pointing at an already-removed file; unlink is best-effort afterwards.
+    await db.caseDocument.delete({ where: { id } })
     if (doc.filePath) {
       try {
         unlinkSync(doc.filePath)
@@ -88,7 +91,6 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
         // best-effort file removal
       }
     }
-    await db.caseDocument.delete({ where: { id } })
     return Response.json({ data: { ok: true } })
   })
 }

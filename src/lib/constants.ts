@@ -145,8 +145,6 @@ export const CLIENT_TYPE_LABELS: Record<string, string> = {
   ORGANIZATION: "Organization",
 }
 
-export const CASE_TYPES_WITH_OTHER = CASE_TYPES
-
 /** File upload limits */
 export const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10 MB
 
@@ -157,6 +155,13 @@ export const ALLOWED_MIME_PREFIXES = [
   "application/vnd.openxmlformats-officedocument.wordprocessingml",
   "text/plain",
 ]
+
+/**
+ * File-picker hint mirroring ALLOWED_MIME_PREFIXES while excluding active
+ * content the server rejects (SVG/HTML). Extensions are listed explicitly
+ * because `image/*` would also offer .svg files.
+ */
+export const UPLOAD_ACCEPT = ".pdf,.doc,.docx,.png,.jpg,.jpeg,.webp,.gif,.txt"
 
 /** App brand */
 export const APP_NAME = "AinSheba"

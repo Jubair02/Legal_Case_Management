@@ -1,7 +1,8 @@
 import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireNumber, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
-import { hashPassword } from "@/lib/password"
+import { hashPassword, MAX_PASSWORD_LENGTH } from "@/lib/password"
+import { EMAIL_RE } from "@/lib/validation"
 
 const ACTIVE_CASE_STATUSES = ["ACTIVE", "PENDING", "ON_HOLD"]
 
@@ -81,6 +82,9 @@ export async function POST(request: Request) {
     const phone = optionalString(body.phone)
     const emailRaw = optionalString(body.email)
     const email = emailRaw ? emailRaw.toLowerCase() : null
+    if (email && !EMAIL_RE.test(email)) {
+      throw new ApiError("Please enter a valid email address.", 422)
+    }
     const barCouncilId = optionalString(body.barCouncilId)
     const specialization = optionalString(body.specialization)
     const chamberName = optionalString(body.chamberName)
@@ -96,6 +100,9 @@ export async function POST(request: Request) {
       if (!email) throw new ApiError("Email is required for portal access.", 422)
       portalPassword = typeof body.password === "string" ? body.password : ""
       if (portalPassword.length < 6) throw new ApiError("Password must be at least 6 characters.", 422)
+      if (portalPassword.length > MAX_PASSWORD_LENGTH) {
+        throw new ApiError(`Password must be at most ${MAX_PASSWORD_LENGTH} characters.`, 422)
+      }
       const existing = await db.user.findUnique({ where: { email } })
       if (existing) throw new ApiError("A user with this email already exists.", 409)
     }
