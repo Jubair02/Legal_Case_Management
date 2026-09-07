@@ -1,0 +1,689 @@
+     1→"use client"
+     2→
+     3→import { useEffect, useMemo, useState } from "react"
+     4→import { toast } from "sonner"
+     5→import {
+     6→  CalendarDays,
+     7→  CalendarPlus,
+     8→  ChevronRight,
+     9→  Clock,
+    10→  Search,
+    11→} from "lucide-react"
+    12→
+    13→import { EmptyState } from "@/components/shared/empty-state"
+    14→import { LoadingBlock } from "@/components/shared/loading-block"
+    15→import { PageHeader } from "@/components/shared/page-header"
+    16→import { StatusBadge } from "@/components/shared/status-badge"
+    17→import { useApiData } from "@/hooks/use-api-data"
+    18→import { Badge } from "@/components/ui/badge"
+    19→import { Button } from "@/components/ui/button"
+    20→import {
+    21→  Dialog,
+    22→  DialogContent,
+    23→  DialogDescription,
+    24→  DialogFooter,
+    25→  DialogHeader,
+    26→  DialogTitle,
+    27→} from "@/components/ui/dialog"
+    28→import { Input } from "@/components/ui/input"
+    29→import { Label } from "@/components/ui/label"
+    30→import {
+    31→  Select,
+    32→  SelectContent,
+    33→  SelectItem,
+    34→  SelectTrigger,
+    35→  SelectValue,
+    36→} from "@/components/ui/select"
+    37→import { Textarea } from "@/components/ui/textarea"
+    38→import { apiGet, apiSend } from "@/lib/api-client"
+    39→import { HEARING_STATUS_LABELS, HEARING_STATUSES, HEARING_TYPES } from "@/lib/constants"
+    40→import type { CaseListDTO, HearingDTO, ViewProps } from "@/lib/types"
+    41→import { cn, formatDate, formatRelativeDay, hearingStatusStyles, toDateInputValue } from "@/lib/utils"
+    42→
+    43→type HearingFilter = "today" | "upcoming" | "past" | "all"
+    44→
+    45→const FILTERS: { key: HearingFilter; label: string }[] = [
+    46→  { key: "today", label: "Today" },
+    47→  { key: "upcoming", label: "Upcoming" },
+    48→  { key: "past", label: "Past" },
+    49→  { key: "all", label: "All" },
+    50→]
+    51→
+    52→const EMPTY_BY_FILTER: Record<HearingFilter, { title: string; description: string }> = {
+    53→  today: { title: "No hearings today", description: "Nothing on the cause list for today." },
+    54→  upcoming: { title: "No upcoming hearings", description: "New hearings will appear here as they are scheduled." },
+    55→  past: { title: "No past hearings", description: "Completed and adjourned hearings will appear here." },
+    56→  all: { title: "No hearings", description: "Schedule a hearing to see it on the court calendar." },
+    57→}
+    58→
+    59→/** Dhaka-timezone "10:30 AM" for hearing timestamps. */
+    60→function formatTime(iso: string | null | undefined): string {
+    61→  if (!iso) return "—"
+    62→  const d = new Date(iso)
+    63→  if (Number.isNaN(d.getTime())) return "—"
+    64→  return new Intl.DateTimeFormat("en-GB", {
+    65→    timeZone: "Asia/Dhaka",
+    66→    hour: "numeric",
+    67→    minute: "2-digit",
+    68→    hour12: true,
+    69→  }).format(d)
+    70→}
+    71→
+    72→/** "THURSDAY" weekday label in Asia/Dhaka. */
+    73→function weekdayUpper(iso: string): string {
+    74→  const d = new Date(iso)
+    75→  if (Number.isNaN(d.getTime())) return ""
+    76→  return new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Dhaka", weekday: "long" })
+    77→    .format(d)
+    78→    .toUpperCase()
+    79→}
+    80→
+    81→/** Stable Dhaka-day key for grouping ("2026-02-12"). */
+    82→function dhakaDayKey(iso: string): string {
+    83→  const d = new Date(iso)
+    84→  if (Number.isNaN(d.getTime())) return iso
+    85→  return new Intl.DateTimeFormat("en-CA", {
+    86→    timeZone: "Asia/Dhaka",
+    87→    year: "numeric",
+    88→    month: "2-digit",
+    89→    day: "2-digit",
+    90→  }).format(d)
+    91→}
+    92→
+    93→function groupByDay(list: HearingDTO[]): { key: string; date: string; hearings: HearingDTO[] }[] {
+    94→  const map = new Map<string, HearingDTO[]>()
+    95→  for (const h of list) {
+    96→    const key = dhakaDayKey(h.hearingDate)
+    97→    const arr = map.get(key)
+    98→    if (arr) arr.push(h)
+    99→    else map.set(key, [h])
+   100→  }
+   101→  return Array.from(map.entries()).map(([key, hearings]) => ({ key, date: hearings[0].hearingDate, hearings }))
+   102→}
+   103→
+   104→/* -------------------------------- Hearing card -------------------------------- */
+   105→
+   106→function HearingCard({
+   107→  hearing,
+   108→  canUpdate,
+   109→  navigate,
+   110→  onUpdate,
+   111→}: {
+   112→  hearing: HearingDTO
+   113→  canUpdate: boolean
+   114→  navigate: ViewProps["navigate"]
+   115→  onUpdate: (h: HearingDTO) => void
+   116→}) {
+   117→  return (
+   118→    <div className="rounded-xl border border-stone-200/80 bg-white p-3 transition-colors hover:border-emerald-300 md:p-4">
+   119→      <div className="flex gap-3">
+   120→        <div className="flex w-[4.5rem] shrink-0 flex-col items-center justify-center rounded-lg bg-emerald-50 py-2 text-emerald-800">
+   121→          <Clock className="mb-0.5 h-3.5 w-3.5" />
+   122→          <span className="text-xs font-bold leading-tight">{formatTime(hearing.hearingDate)}</span>
+   123→        </div>
+   124→        <div className="min-w-0 flex-1">
+   125→          <div className="flex flex-wrap items-start justify-between gap-2">
+   126→            <button
+   127→              type="button"
+   128→              onClick={() => navigate("case-detail", { id: hearing.caseId })}
+   129→              className="group min-w-0 flex-1 text-left"
+   130→            >
+   131→              <span className="flex items-center gap-1 text-sm font-semibold leading-tight group-hover:text-emerald-700">
+   132→                {hearing.caseNumber}
+   133→                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-stone-300 transition-colors group-hover:text-emerald-600" />
+   134→              </span>
+   135→              <span className="mt-0.5 block truncate text-xs text-muted-foreground group-hover:text-emerald-700">
+   136→                {hearing.caseTitle}
+   137→              </span>
+   138→            </button>
+   139→            <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+   140→              {hearing.hearingType ? (
+   141→                <Badge variant="outline" className="border border-emerald-200 bg-emerald-50 text-emerald-700">
+   142→                  {hearing.hearingType}
+   143→                </Badge>
+   144→              ) : null}
+   145→              <StatusBadge map={hearingStatusStyles} value={hearing.status} />
+   146→            </div>
+   147→          </div>
+   148→          <p className="mt-1.5 truncate text-xs text-muted-foreground">
+   149→            {hearing.court ?? "Court —"}
+   150→            {hearing.judge ? ` · ${hearing.judge}` : ""}
+   151→          </p>
+   152→          {hearing.notes ? <p className="mt-1 line-clamp-1 text-xs text-stone-500">{hearing.notes}</p> : null}
+   153→        </div>
+   154→      </div>
+   155→      {canUpdate ? (
+   156→        <div className="mt-2 flex justify-end border-t border-stone-100 pt-2">
+   157→          <Button
+   158→            variant="ghost"
+   159→            size="sm"
+   160→            className="h-7 px-2.5 text-xs text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
+   161→            onClick={() => onUpdate(hearing)}
+   162→          >
+   163→            Update
+   164→          </Button>
+   165→        </div>
+   166→      ) : null}
+   167→    </div>
+   168→  )
+   169→}
+   170→
+   171→/* ---------------------------- Schedule hearing dialog ---------------------------- */
+   172→
+   173→export interface ScheduleHearingDialogProps {
+   174→  open: boolean
+   175→  onOpenChange: (open: boolean) => void
+   176→  onSaved: () => void
+   177→}
+   178→
+   179→/** Creates a hearing via POST /api/cases/[caseId]/hearings (case picked from active cases). */
+   180→export function ScheduleHearingDialog({ open, onOpenChange, onSaved }: ScheduleHearingDialogProps) {
+   181→  const [cases, setCases] = useState<CaseListDTO[] | null>(null)
+   182→  const [casesLoading, setCasesLoading] = useState(false)
+   183→  const [caseQuery, setCaseQuery] = useState("")
+   184→  const [selectedCase, setSelectedCase] = useState<CaseListDTO | null>(null)
+   185→  const [date, setDate] = useState("")
+   186→  const [type, setType] = useState("__none__")
+   187→  const [judge, setJudge] = useState("")
+   188→  const [court, setCourt] = useState("")
+   189→  const [notes, setNotes] = useState("")
+   190→  const [pending, setPending] = useState(false)
+   191→
+   192→  useEffect(() => {
+   193→    if (!open) return
+   194→    // reset form on every open
+   195→    setSelectedCase(null)
+   196→    setCaseQuery("")
+   197→    setDate("")
+   198→    setType("__none__")
+   199→    setJudge("")
+   200→    setCourt("")
+   201→    setNotes("")
+   202→    setPending(false)
+   203→
+   204→    let active = true
+   205→    setCasesLoading(true)
+   206→    apiGet<CaseListDTO[]>("/api/cases?view=active")
+   207→      .then((list) => {
+   208→        if (active) setCases(list ?? [])
+   209→      })
+   210→      .catch((e) => {
+   211→        if (active) {
+   212→          setCases([])
+   213→          toast.error(e instanceof Error ? e.message : "Could not load the case list.")
+   214→        }
+   215→      })
+   216→      .finally(() => {
+   217→        if (active) setCasesLoading(false)
+   218→      })
+   219→    return () => {
+   220→      active = false
+   221→    }
+   222→  }, [open])
+   223→
+   224→  const candidateCases = useMemo(() => {
+   225→    const list = cases ?? []
+   226→    const q = caseQuery.trim().toLowerCase()
+   227→    if (!q) return list
+   228→    return list.filter((c) =>
+   229→      [c.caseNumber, c.title, c.client?.name ?? ""].some((v) => v.toLowerCase().includes(q))
+   230→    )
+   231→  }, [cases, caseQuery])
+   232→
+   233→  const submit = async () => {
+   234→    if (!selectedCase) {
+   235→      toast.error("Select the case this hearing belongs to.")
+   236→      return
+   237→    }
+   238→    if (!date) {
+   239→      toast.error("Hearing date is required.")
+   240→      return
+   241→    }
+   242→    try {
+   243→      setPending(true)
+   244→      await apiSend<HearingDTO>("POST", `/api/cases/${selectedCase.id}/hearings`, {
+   245→        hearingDate: date,
+   246→        hearingType: type === "__none__" ? null : type,
+   247→        court: court.trim() || null,
+   248→        judge: judge.trim() || null,
+   249→        notes: notes.trim() || null,
+   250→      })
+   251→      toast.success(`Hearing scheduled for ${selectedCase.caseNumber}.`)
+   252→      onOpenChange(false)
+   253→      onSaved()
+   254→    } catch (e) {
+   255→      toast.error(e instanceof Error ? e.message : "Could not schedule the hearing.")
+   256→    } finally {
+   257→      setPending(false)
+   258→    }
+   259→  }
+   260→
+   261→  return (
+   262→    <Dialog open={open} onOpenChange={onOpenChange}>
+   263→      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+   264→        <DialogHeader>
+   265→          <DialogTitle>Schedule hearing</DialogTitle>
+   266→          <DialogDescription>Pick an active case and set the court date.</DialogDescription>
+   267→        </DialogHeader>
+   268→
+   269→        <div className="space-y-4">
+   270→          <div className="space-y-1.5">
+   271→            <Label>
+   272→              Case <span className="text-rose-500">*</span>
+   273→            </Label>
+   274→            {selectedCase ? (
+   275→              <div className="flex items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+   276→                <div className="min-w-0">
+   277→                  <p className="truncate text-sm font-semibold text-emerald-900">{selectedCase.caseNumber}</p>
+   278→                  <p className="truncate text-xs text-emerald-800/80">{selectedCase.title}</p>
+   279→                </div>
+   280→                <Button variant="ghost" size="sm" onClick={() => setSelectedCase(null)} disabled={pending}>
+   281→                  Change
+   282→                </Button>
+   283→              </div>
+   284→            ) : (
+   285→              <div className="space-y-2">
+   286→                <div className="relative">
+   287→                  <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+   288→                  <Input
+   289→                    value={caseQuery}
+   290→                    onChange={(e) => setCaseQuery(e.target.value)}
+   291→                    placeholder="Search active cases…"
+   292→                    className="pl-8"
+   293→                  />
+   294→                </div>
+   295→                <div className="max-h-52 space-y-0.5 overflow-y-auto rounded-lg border border-stone-200 p-1">
+   296→                  {casesLoading ? (
+   297→                    <p className="px-2 py-4 text-center text-xs text-muted-foreground">Loading cases…</p>
+   298→                  ) : candidateCases.length === 0 ? (
+   299→                    <p className="px-2 py-4 text-center text-xs text-muted-foreground">
+   300→                      {cases && cases.length === 0 ? "No active cases found." : "No cases match your search."}
+   301→                    </p>
+   302→                  ) : (
+   303→                    candidateCases.map((c) => (
+   304→                      <button
+   305→                        key={c.id}
+   306→                        type="button"
+   307→                        onClick={() => setSelectedCase(c)}
+   308→                        className="w-full rounded-md px-2.5 py-2 text-left transition-colors hover:bg-emerald-50"
+   309→                      >
+   310→                        <p className="text-sm font-semibold text-emerald-800">{c.caseNumber}</p>
+   311→                        <p className="truncate text-xs text-muted-foreground">
+   312→                          {c.title} · {c.client?.name ?? "—"}
+   313→                        </p>
+   314→                      </button>
+   315→                    ))
+   316→                  )}
+   317→                </div>
+   318→              </div>
+   319→            )}
+   320→          </div>
+   321→
+   322→          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+   323→            <div className="space-y-1.5">
+   324→              <Label htmlFor="hearing-date">
+   325→                Hearing date <span className="text-rose-500">*</span>
+   326→              </Label>
+   327→              <Input id="hearing-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+   328→            </div>
+   329→            <div className="space-y-1.5">
+   330→              <Label htmlFor="hearing-type">Hearing type</Label>
+   331→              <Select value={type} onValueChange={setType}>
+   332→                <SelectTrigger id="hearing-type" className="w-full">
+   333→                  <SelectValue placeholder="Select type" />
+   334→                </SelectTrigger>
+   335→                <SelectContent>
+   336→                  <SelectItem value="__none__">Not specified</SelectItem>
+   337→                  {HEARING_TYPES.map((t) => (
+   338→                    <SelectItem key={t} value={t}>
+   339→                      {t}
+   340→                    </SelectItem>
+   341→                  ))}
+   342→                </SelectContent>
+   343→              </Select>
+   344→            </div>
+   345→          </div>
+   346→
+   347→          <div className="space-y-1.5">
+   348→            <Label htmlFor="hearing-court">Court</Label>
+   349→            <Input id="hearing-court" value={court} onChange={(e) => setCourt(e.target.value)} placeholder="Defaults to case court" />
+   350→          </div>
+   351→
+   352→          <div className="space-y-1.5">
+   353→            <Label htmlFor="hearing-judge">Judge</Label>
+   354→            <Input id="hearing-judge" value={judge} onChange={(e) => setJudge(e.target.value)} placeholder="e.g. Justice A. K. M. Fazlul Karim" />
+   355→          </div>
+   356→
+   357→          <div className="space-y-1.5">
+   358→            <Label htmlFor="hearing-notes">Notes</Label>
+   359→            <Textarea
+   360→              id="hearing-notes"
+   361→              value={notes}
+   362→              onChange={(e) => setNotes(e.target.value)}
+   363→              placeholder="Anything the chamber should prepare for"
+   364→              rows={2}
+   365→            />
+   366→          </div>
+   367→        </div>
+   368→
+   369→        <DialogFooter>
+   370→          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+   371→            Cancel
+   372→          </Button>
+   373→          <Button onClick={submit} disabled={pending}>
+   374→            <CalendarPlus className="h-4 w-4" /> {pending ? "Scheduling…" : "Schedule hearing"}
+   375→          </Button>
+   376→        </DialogFooter>
+   377→      </DialogContent>
+   378→    </Dialog>
+   379→  )
+   380→}
+   381→
+   382→/* ----------------------------- Hearing update dialog ----------------------------- */
+   383→
+   384→export interface HearingUpdateDialogProps {
+   385→  open: boolean
+   386→  onOpenChange: (open: boolean) => void
+   387→  /** The hearing being updated (required when open). */
+   388→  hearing: HearingDTO | null
+   389→  onSaved: () => void
+   390→}
+   391→
+   392→/** Records the outcome of a hearing via PATCH /api/hearings/[id]. */
+   393→export function HearingUpdateDialog({ open, onOpenChange, hearing, onSaved }: HearingUpdateDialogProps) {
+   394→  const [status, setStatus] = useState("UPCOMING")
+   395→  const [hearingDate, setHearingDate] = useState("")
+   396→  const [notes, setNotes] = useState("")
+   397→  const [summary, setSummary] = useState("")
+   398→  const [courtOrder, setCourtOrder] = useState("")
+   399→  const [nextAction, setNextAction] = useState("")
+   400→  const [nextHearingDate, setNextHearingDate] = useState("")
+   401→  const [pending, setPending] = useState(false)
+   402→
+   403→  useEffect(() => {
+   404→    if (!open || !hearing) return
+   405→    setStatus(hearing.status && HEARING_STATUS_LABELS[hearing.status] ? hearing.status : "UPCOMING")
+   406→    setHearingDate(toDateInputValue(hearing.hearingDate))
+   407→    setNotes(hearing.notes ?? "")
+   408→    setSummary(hearing.summary ?? "")
+   409→    setCourtOrder(hearing.courtOrder ?? "")
+   410→    setNextAction(hearing.nextAction ?? "")
+   411→    setNextHearingDate(toDateInputValue(hearing.nextHearingDate))
+   412→    setPending(false)
+   413→  }, [open, hearing])
+   414→
+   415→  const submit = async () => {
+   416→    if (!hearing) return
+   417→    if (!hearingDate) {
+   418→      toast.error("Hearing date is required.")
+   419→      return
+   420→    }
+   421→    try {
+   422→      setPending(true)
+   423→      await apiSend<HearingDTO>("PATCH", `/api/hearings/${hearing.id}`, {
+   424→        status,
+   425→        hearingDate,
+   426→        notes: notes.trim() || null,
+   427→        summary: summary.trim() || null,
+   428→        courtOrder: courtOrder.trim() || null,
+   429→        nextAction: nextAction.trim() || null,
+   430→        nextHearingDate: nextHearingDate || null,
+   431→      })
+   432→      toast.success(`Hearing updated for ${hearing.caseNumber}.`)
+   433→      onOpenChange(false)
+   434→      onSaved()
+   435→    } catch (e) {
+   436→      toast.error(e instanceof Error ? e.message : "Could not update the hearing.")
+   437→    } finally {
+   438→      setPending(false)
+   439→    }
+   440→  }
+   441→
+   442→  return (
+   443→    <Dialog open={open} onOpenChange={onOpenChange}>
+   444→      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+   445→        <DialogHeader>
+   446→          <DialogTitle>Update hearing</DialogTitle>
+   447→          <DialogDescription>
+   448→            {hearing ? `${hearing.caseNumber} · ${formatDate(hearing.hearingDate)}` : "Record the hearing outcome."}
+   449→          </DialogDescription>
+   450→        </DialogHeader>
+   451→
+   452→        <div className="space-y-4">
+   453→          <div className="grid gap-4 sm:grid-cols-2">
+   454→            <div className="space-y-1.5">
+   455→              <Label htmlFor="update-status">Status</Label>
+   456→              <Select value={status} onValueChange={setStatus}>
+   457→                <SelectTrigger id="update-status" className="w-full">
+   458→                  <SelectValue placeholder="Select status" />
+   459→                </SelectTrigger>
+   460→                <SelectContent>
+   461→                  {HEARING_STATUSES.map((s) => (
+   462→                    <SelectItem key={s} value={s}>
+   463→                      {HEARING_STATUS_LABELS[s]}
+   464→                    </SelectItem>
+   465→                  ))}
+   466→                </SelectContent>
+   467→              </Select>
+   468→            </div>
+   469→            <div className="space-y-1.5">
+   470→              <Label htmlFor="update-hearing-date">Hearing date</Label>
+   471→              <Input
+   472→                id="update-hearing-date"
+   473→                type="date"
+   474→                value={hearingDate}
+   475→                onChange={(e) => setHearingDate(e.target.value)}
+   476→              />
+   477→            </div>
+   478→          </div>
+   479→
+   480→          <div className="space-y-1.5">
+   481→            <Label htmlFor="update-notes">Internal notes</Label>
+   482→            <Textarea
+   483→              id="update-notes"
+   484→              value={notes}
+   485→              onChange={(e) => setNotes(e.target.value)}
+   486→              placeholder="Preparation notes, reminders…"
+   487→              rows={2}
+   488→            />
+   489→          </div>
+   490→
+   491→          <div className="space-y-1.5">
+   492→            <Label htmlFor="update-summary">Summary</Label>
+   493→            <Textarea
+   494→              id="update-summary"
+   495→              value={summary}
+   496→              onChange={(e) => setSummary(e.target.value)}
+   497→              placeholder="What happened in court today"
+   498→              rows={3}
+   499→            />
+   500→          </div>
+   501→
+   502→          <div className="space-y-1.5">
+   503→            <Label htmlFor="update-order">Court order</Label>
+   504→            <Textarea
+   505→              id="update-order"
+   506→              value={courtOrder}
+   507→              onChange={(e) => setCourtOrder(e.target.value)}
+   508→              placeholder="Order passed by the court, if any"
+   509→              rows={2}
+   510→            />
+   511→          </div>
+   512→
+   513→          <div className="space-y-1.5">
+   514→            <Label htmlFor="update-next-action">Next action</Label>
+   515→            <Input
+   516→              id="update-next-action"
+   517→              value={nextAction}
+   518→              onChange={(e) => setNextAction(e.target.value)}
+   519→              placeholder="e.g. Prepare written statement"
+   520→            />
+   521→          </div>
+   522→
+   523→          <div className="space-y-1.5">
+   524→            <Label htmlFor="update-next-date">Next hearing date</Label>
+   525→            <Input id="update-next-date" type="date" value={nextHearingDate} onChange={(e) => setNextHearingDate(e.target.value)} />
+   526→            <p className="text-xs text-muted-foreground">
+   527→              Setting a date on a completed or adjourned hearing creates the next upcoming hearing automatically.
+   528→            </p>
+   529→          </div>
+   530→        </div>
+   531→
+   532→        <DialogFooter>
+   533→          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+   534→            Cancel
+   535→          </Button>
+   536→          <Button onClick={submit} disabled={pending}>
+   537→            {pending ? "Saving…" : "Save update"}
+   538→          </Button>
+   539→        </DialogFooter>
+   540→      </DialogContent>
+   541→    </Dialog>
+   542→  )
+   543→}
+   544→
+   545→/* ---------------------------------- View ---------------------------------- */
+   546→
+   547→export default function HearingsView({ user, navigate }: ViewProps) {
+   548→  // Lawyers can schedule for their own assigned cases (same as inside a case file).
+   549→  const canSchedule = user.role === "ADMIN" || user.role === "STAFF" || user.role === "LAWYER"
+   550→  const canUpdate = user.role === "ADMIN" || user.role === "STAFF" || user.role === "LAWYER"
+   551→
+   552→  const [filter, setFilter] = useState<HearingFilter>("today")
+   553→  const { data, loading, error, refetch } = useApiData<HearingDTO[]>(`/api/hearings?filter=${filter}`)
+   554→
+   555→  const [scheduleOpen, setScheduleOpen] = useState(false)
+   556→  const [updateTarget, setUpdateTarget] = useState<HearingDTO | null>(null)
+   557→  const [updateOpen, setUpdateOpen] = useState(false)
+   558→
+   559→  const hearings = useMemo(() => data ?? [], [data])
+   560→  const groups = useMemo(
+   561→    () => (filter === "today" ? [] : groupByDay(hearings)),
+   562→    [filter, hearings]
+   563→  )
+   564→  const todayGroup = useMemo(() => (filter === "today" ? groupByDay(hearings) : []), [filter, hearings])
+   565→
+   566→  const openUpdate = (h: HearingDTO) => {
+   567→    setUpdateTarget(h)
+   568→    setUpdateOpen(true)
+   569→  }
+   570→
+   571→  const renderCards = (list: HearingDTO[]) => (
+   572→    <div className="space-y-3">
+   573→      {list.map((h) => (
+   574→        <HearingCard key={h.id} hearing={h} canUpdate={canUpdate} navigate={navigate} onUpdate={openUpdate} />
+   575→      ))}
+   576→    </div>
+   577→  )
+   578→
+   579→  const renderDayHeader = (date: string) => {
+   580→    const rel = formatRelativeDay(date)
+   581→    const isToday = rel === "Today"
+   582→    return (
+   583→      <div
+   584→        className={cn(
+   585→          "flex flex-wrap items-baseline gap-x-2 rounded-lg border px-3 py-2",
+   586→          isToday ? "border-emerald-200 bg-emerald-50" : "border-stone-200 bg-white"
+   587→        )}
+   588→      >
+   589→        <span className={cn("text-sm font-semibold", isToday ? "text-emerald-800" : "text-foreground")}>
+   590→          {isToday ? `Today — ${formatDate(date)}` : formatDate(date)}
+   591→        </span>
+   592→        <span className="text-[11px] font-medium tracking-wider text-muted-foreground">{weekdayUpper(date)}</span>
+   593→        <span className="ml-auto text-[11px] text-muted-foreground">
+   594→          {rel !== "Today" && rel !== formatDate(date) ? rel : null}
+   595→        </span>
+   596→      </div>
+   597→    )
+   598→  }
+   599→
+   600→  return (
+   601→    <div className="space-y-6">
+   602→      <PageHeader title="Hearings" description="Court calendar, hearing updates and adjournment tracking.">
+   603→        {canSchedule ? (
+   604→          <Button onClick={() => setScheduleOpen(true)}>
+   605→            <CalendarPlus className="h-4 w-4" /> Schedule Hearing
+   606→          </Button>
+   607→        ) : null}
+   608→      </PageHeader>
+   609→
+   610→      <div className="flex w-full overflow-x-auto pb-0.5 sm:w-auto">
+   611→        <div className="inline-flex rounded-lg border border-stone-200 bg-white p-1">
+   612→          {FILTERS.map((f) => {
+   613→            const active = filter === f.key
+   614→            return (
+   615→              <button
+   616→                key={f.key}
+   617→                type="button"
+   618→                onClick={() => setFilter(f.key)}
+   619→                className={cn(
+   620→                  "rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-colors",
+   621→                  active ? "bg-emerald-600 text-white shadow-xs" : "text-muted-foreground hover:bg-stone-100 hover:text-foreground"
+   622→                )}
+   623→              >
+   624→                {f.label}
+   625→                {active && data ? ` (${data.length})` : ""}
+   626→              </button>
+   627→            )
+   628→          })}
+   629→        </div>
+   630→      </div>
+   631→
+   632→      {loading && !data ? (
+   633→        <LoadingBlock rows={4} />
+   634→      ) : error && !data ? (
+   635→        <EmptyState
+   636→          icon={CalendarDays}
+   637→          title="Could not load hearings"
+   638→          description={error}
+   639→          action={
+   640→            <Button variant="outline" size="sm" onClick={refetch}>
+   641→              Try again
+   642→            </Button>
+   643→          }
+   644→        />
+   645→      ) : hearings.length === 0 ? (
+   646→        <EmptyState
+   647→          icon={CalendarDays}
+   648→          title={EMPTY_BY_FILTER[filter].title}
+   649→          description={EMPTY_BY_FILTER[filter].description}
+   650→          action={
+   651→            canSchedule ? (
+   652→              <Button size="sm" onClick={() => setScheduleOpen(true)}>
+   653→                <CalendarPlus className="h-4 w-4" /> Schedule Hearing
+   654→              </Button>
+   655→            ) : undefined
+   656→          }
+   657→        />
+   658→      ) : filter === "today" ? (
+   659→        <div className="space-y-3">
+   660→          {todayGroup.map((g) => (
+   661→            <div key={g.key} className="space-y-3">
+   662→              {renderDayHeader(g.date)}
+   663→              {renderCards(g.hearings)}
+   664→            </div>
+   665→          ))}
+   666→        </div>
+   667→      ) : (
+   668→        <div className="space-y-6">
+   669→          {groups.map((g) => (
+   670→            <div key={g.key} className="space-y-3">
+   671→              {renderDayHeader(g.date)}
+   672→              {renderCards(g.hearings)}
+   673→            </div>
+   674→          ))}
+   675→        </div>
+   676→      )}
+   677→
+   678→      <ScheduleHearingDialog open={scheduleOpen} onOpenChange={setScheduleOpen} onSaved={refetch} />
+   679→
+   680→      <HearingUpdateDialog
+   681→        open={updateOpen}
+   682→        onOpenChange={setUpdateOpen}
+   683→        hearing={updateTarget}
+   684→        onSaved={refetch}
+   685→      />
+   686→    </div>
+   687→  )
+   688→}
+   689→

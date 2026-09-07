@@ -385,3 +385,19 @@ Stage Summary:
 - All CRITICAL/HIGH/MEDIUM issues fixed and verified; LOW issues fixed except: pagination (MVP-acceptable) and unused shadcn stock components (left in place intentionally).
 - Notable product changes per PRD: lawyers now manage billing for own cases (create/cancel invoice, record payment, view billing); self-service password change for every role; demo credentials hidden in production builds.
 - Before real deployment still needed: set AUTH_SECRET + run behind HTTPS (cookie secure flag activates in production).
+
+---
+Task ID: QA-REVIEW-2
+Agent: Z.ai Code (main, post-fix re-review)
+Task: Fresh full-project re-review after QA-FIX-1 — verify all fixes hold, find new/missed issues; deliver updated prioritized report.
+
+Work Log:
+- Read all 25 API route files + libs + schema (subagent QA-REVIEW-2-A) and the entire frontend SPA incl. large views (subagent QA-REVIEW-2-B); both research-only.
+- Dynamic regression suite (curl, 4 role cookie jars): both critical clientId leaks stay CLOSED; CLIENT 403 on lawyers/users/reports; STAFF 403 on invoices/payments; LAWYER invoices scoped to own cases; login rate limit 429 on 9th attempt; timing equalized (~38ms both paths); /api/auth/me 200-null for anonymous (by design).
+- Browser walkthrough (agent-browser) all 4 roles: login screen + gated demo accounts; admin case detail opens Overview; LAWYER has Billing nav, no Reports; CLIENT nav per PRD, billing sidebar<->tab switching fixed; STAFF nav + Settings (My Account/System only); sticky footer on mobile 390x844; bun run lint clean; dev.log error-free.
+- Test incident: one lawyer-edit driven via synthetic DOM events unexpectedly nulled LB-303/2026 oppositeParty+description; NOT reproducible in 2 instrumented attempts (fetch-hook shows lawyer PATCH correctly omits those fields); all values restored exactly (incl. apostrophe); full record integrity re-verified.
+
+Stage Summary:
+- QA-FIX-1 verified except 2 partial gaps: (M-1) /api/dashboard CLIENT nextHearing still leaks judge/notes/summary/courtOrder/nextAction (strip was applied to hearings+case-detail only); (M3) badge refresh after mark-read works from bell dropdown only, not the Notifications page.
+- New findings: 5 MEDIUM (dashboard hearing leak; case rows not keyboard-accessible; lawyer case-edit fields silently discarded (inputs enabled but never sent); badge desync from Notifications page; documents-view case-list error -> wrong empty state) + LOW set (password>max 500 on 3 admin paths; EMAIL_RE gaps; XFF trust; payment POST no $transaction; missing FK indexes; docs delete order; non-multipart 400; upload accept includes svg; dead code ui/toast+toaster+use-toast, ui/sidebar+use-mobile, CASE_TYPES_WITH_OTHER; a11y nits; .env lacks AUTH_SECRET for prod, no .env.example).
+- Data state: 6 seed cases / 6 invoices intact; LB-303 restored byte-exact; lint clean; server healthy.
