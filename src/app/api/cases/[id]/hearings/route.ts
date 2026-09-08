@@ -2,7 +2,9 @@ import { db } from "@/lib/db"
 import { ApiError, handle, optionalString, parseDateOnly, readJson, requireAuth, requireString } from "@/lib/api-helpers"
 import { assertCaseWriteAccess } from "@/lib/permissions"
 import { dhakaDateKey } from "@/lib/dates"
-import { adminIds, clientUserId, lawyerUserId, notifyUsers } from "@/lib/notify"
+import { adminIds, notifyUsers } from "@/lib/notify"
+import { audit } from "@/lib/audit"
+import { enqueueOutbound, formatHearingWhen } from "@/lib/outbound"
 
 function hearingDTO(
   h: {
@@ -49,7 +51,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     await assertCaseWriteAccess(user, id)
     const fullCase = await db.case.findUnique({
       where: { id },
-      select: { caseNumber: true, title: true, court: true, clientId: true, lawyerId: true },
+      select: {
+        caseNumber: true,
+        title: true,
+        court: true,
+        clientId: true,
+        lawyerId: true,
+        client: { select: { name: true, phone: true, email: true, userId: true } },
+        lawyer: { select: { name: true, phone: true, email: true, userId: true } },
+      },
     })
     if (!fullCase) throw new ApiError("Case not found.", 404)
 
@@ -74,13 +84,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       },
     })
 
-    const [clientPortalUserId, caseLawyerUserId, admins] = await Promise.all([
-      clientUserId(fullCase.clientId),
-      lawyerUserId(fullCase.lawyerId),
-      adminIds(),
-    ])
+    const admins = await adminIds()
     await notifyUsers(
-      [clientPortalUserId, caseLawyerUserId, ...admins.filter((uid) => uid !== user.id)],
+      [fullCase.client.userId, fullCase.lawyer?.userId, ...admins.filter((uid) => uid !== user.id)],
       {
         title: `Hearing Scheduled — ${fullCase.caseNumber}`,
         message: `${hearingType ?? "Hearing"} on ${dhakaDateKey(hearingDate)}${court ? ` at ${court}` : ""}.`,
@@ -89,6 +95,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         link: `case-detail:${id}`,
       }
     )
+
+    // SMS/Email bridge — client + assigned lawyer.
+    const when = formatHearingWhen(hearingDate, null)
+    await enqueueOutbound({
+      event: "HEARING_SCHEDULED",
+      recipients: fullCase.lawyer
+        ? [fullCase.client, fullCase.lawyer]
+        : [fullCase.client],
+      subject: `Hearing Scheduled — ${fullCase.caseNumber}`,
+      smsBody: `AinSheba: Hearing scheduled for ${fullCase.caseNumber} — ${when}${court ? `, ${court}` : ""}.`,
+      caseId: id,
+      caseNumber: fullCase.caseNumber,
+      dedupeKey: `hearing-scheduled:${created.id}`,
+    })
+
+    await audit(user, "HEARING_SCHEDULE", "Hearing", created.id, fullCase.caseNumber,
+      `Scheduled ${hearingType ?? "hearing"} on ${dhakaDateKey(hearingDate)}${court ? ` at ${court}` : ""} for case ${fullCase.caseNumber}`,
+      { hearingDate: dhakaDateKey(hearingDate), hearingType, court, judge })
 
     return Response.json(
       { data: hearingDTO(created, fullCase.caseNumber, fullCase.title) },

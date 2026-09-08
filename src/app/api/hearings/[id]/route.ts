@@ -3,7 +3,9 @@ import { ApiError, handle, optionalString, parseDateOnly, readJson, requireAuth 
 import { assertCaseWriteAccess } from "@/lib/permissions"
 import { HEARING_STATUSES } from "@/lib/constants"
 import { dhakaDateKey } from "@/lib/dates"
-import { clientUserId, lawyerUserId, notifyUsers } from "@/lib/notify"
+import { notifyUsers } from "@/lib/notify"
+import { audit, diffFields } from "@/lib/audit"
+import { enqueueOutbound } from "@/lib/outbound"
 
 function hearingDTO(
   h: {
@@ -54,7 +56,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
     const kase = await db.case.findUnique({
       where: { id: hearing.caseId },
-      select: { caseNumber: true, title: true, court: true, clientId: true, lawyerId: true },
+      select: {
+        caseNumber: true,
+        title: true,
+        court: true,
+        clientId: true,
+        lawyerId: true,
+        client: { select: { name: true, phone: true, email: true, userId: true } },
+        lawyer: { select: { name: true, phone: true, email: true, userId: true } },
+      },
     })
     if (!kase) throw new ApiError("Case not found.", 404)
 
@@ -112,24 +122,45 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       }
     }
 
-    const [clientPortalUserId, caseLawyerUserId] = await Promise.all([
-      clientUserId(kase.clientId),
-      lawyerUserId(kase.lawyerId),
-    ])
+    const message = newStatus
+      ? `Hearing on ${dhakaDateKey(updated.hearingDate)} is now ${newStatus.toLowerCase()}${
+          updated.nextHearingDate ? `; next hearing ${dhakaDateKey(updated.nextHearingDate)}` : ""
+        }.`
+      : `Hearing details updated for ${dhakaDateKey(updated.hearingDate)}.`
     await notifyUsers(
-      [clientPortalUserId, caseLawyerUserId].filter((uid) => uid !== user.id),
+      [kase.client.userId, kase.lawyer?.userId].filter((uid) => uid !== user.id),
       {
         title: `Hearing Update — ${kase.caseNumber}`,
-        message: newStatus
-          ? `Hearing on ${dhakaDateKey(updated.hearingDate)} is now ${newStatus.toLowerCase()}${
-              updated.nextHearingDate ? `; next hearing ${dhakaDateKey(updated.nextHearingDate)}` : ""
-            }.`
-          : `Hearing details updated for ${dhakaDateKey(updated.hearingDate)}.`,
+        message,
         type: "HEARING",
         caseId: hearing.caseId,
         link: `case-detail:${hearing.caseId}`,
       }
     )
+
+    // SMS/Email bridge — client + assigned lawyer.
+    await enqueueOutbound({
+      event: "HEARING_UPDATED",
+      recipients: kase.lawyer ? [kase.client, kase.lawyer] : [kase.client],
+      subject: `Hearing Update — ${kase.caseNumber}`,
+      smsBody: `AinSheba: ${kase.caseNumber} — ${message}`,
+      caseId: hearing.caseId,
+      caseNumber: kase.caseNumber,
+      dedupeKey: `hearing-updated:${updated.id}:${dhakaDateKey(new Date())}:${
+        newStatus ?? "edit"
+      }`,
+    })
+
+    const hearingDiff = diffFields(
+      hearing as unknown as Record<string, unknown>,
+      updated as unknown as Record<string, unknown>,
+      ["status", "hearingDate", "court", "judge", "hearingType", "summary", "courtOrder", "nextAction", "nextHearingDate"]
+    )
+    await audit(user, newStatus ? "HEARING_STATUS" : "HEARING_UPDATE", "Hearing", id, kase.caseNumber,
+      newStatus
+        ? `Hearing ${dhakaDateKey(updated.hearingDate)} → ${newStatus.toLowerCase()} for case ${kase.caseNumber}`
+        : `Updated hearing ${dhakaDateKey(updated.hearingDate)} of case ${kase.caseNumber}`,
+      hearingDiff)
 
     return Response.json({ data: hearingDTO(updated, kase.caseNumber, kase.title) })
   })

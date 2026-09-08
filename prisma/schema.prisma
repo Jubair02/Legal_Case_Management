@@ -194,3 +194,60 @@ model Notification {
   @@index([userId, isRead])
   @@index([dedupeKey])
 }
+
+/**
+ * SMS/Email delivery queue. Every outbound message is enqueued here first and
+ * then dispatched through the provider bridge (lib/outbound.ts). When no
+ * provider credentials are configured the bridge marks messages SIMULATED so
+ * chambers can preview the exact wording in the outbox before going live.
+ */
+model OutboundMessage {
+  id            String    @id @default(cuid())
+  channel       String // SMS | EMAIL
+  recipient     String // phone number or email address
+  recipientName String?
+  userId        String? // linked portal user, when known
+  event         String // HEARING_TODAY | HEARING_TOMORROW | HEARING_SCHEDULED | HEARING_UPDATED | INVOICE_ISSUED | INVOICE_OVERDUE | PAYMENT_RECEIVED | TEST
+  body          String
+  caseId        String?
+  caseNumber    String? // denormalised snapshot for the outbox list
+  status        String    @default("PENDING") // PENDING | SENT | SIMULATED | FAILED
+  providerRef   String?
+  error         String?
+  attempts      Int       @default(0)
+  sentAt        DateTime?
+  dedupeKey     String?   @unique
+  createdAt     DateTime  @default(now())
+
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([event])
+}
+
+/** Single-row-per-key app settings (JSON encoded). Key "outbound" drives the SMS/Email bridge. */
+model SystemSetting {
+  key       String   @id
+  value     String // JSON string
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+
+/** Append-only audit trail of every business mutation and auth event. */
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorId     String?
+  actorName   String?
+  actorRole   String?
+  action      String // CASE_CREATE, HEARING_UPDATE, PAYMENT_RECORD, AUTH_LOGIN, ...
+  entityType  String // Case | Hearing | Invoice | Payment | Client | Lawyer | User | Document | Auth | Settings
+  entityId    String?
+  entityLabel String? // human-readable snapshot (case number, invoice number, ...)
+  summary     String? // short human sentence
+  meta        String? // JSON string with { field: { from, to } } diffs
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([action])
+  @@index([actorId])
+  @@index([entityType, entityId])
+}
