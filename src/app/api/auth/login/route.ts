@@ -3,6 +3,7 @@ import { ApiError, handle, ok, readJson, requireString } from "@/lib/api-helpers
 import { setSessionCookie, signSession } from "@/lib/auth"
 import { DUMMY_HASH, MAX_PASSWORD_LENGTH, verifyPassword } from "@/lib/password"
 import { isRateLimited, recordFailedAttempt, clearAttempts } from "@/lib/rate-limit"
+import { audit } from "@/lib/audit"
 
 export async function POST(request: Request) {
   return handle(async () => {
@@ -38,6 +39,12 @@ export async function POST(request: Request) {
 
     if (!user || !passwordOk || user.status !== "ACTIVE") {
       if (!user || user.status === "ACTIVE") recordFailedAttempt(request, email)
+      // Best-effort audit of the wrong-password path only. Unknown emails stay
+      // unaudited so no new account-existence signal is added beyond the
+      // (already rate-limited) timing equalization above.
+      if (user && !passwordOk) {
+        await audit(null, "AUTH_LOGIN_FAILED", "Auth", null, email, "Failed sign-in attempt")
+      }
       // Same message for unknown email, wrong password and inactive account so
       // the endpoint cannot be used as an account-status oracle.
       throw new ApiError("Invalid email or password.", 401)
@@ -52,6 +59,8 @@ export async function POST(request: Request) {
       sessionVersion: user.sessionVersion,
     })
     await setSessionCookie(token)
+
+    await audit(user, "AUTH_LOGIN", "Auth", user.id, user.email, "Signed in")
 
     // The token is returned in the body so the SPA can fall back to an
     // `Authorization: Bearer` header when cookies are unavailable (e.g. the

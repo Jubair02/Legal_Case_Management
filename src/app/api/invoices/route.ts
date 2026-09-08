@@ -1,7 +1,9 @@
 import { db } from "@/lib/db"
 import { ApiError, handle, optionalString, parseDateOnly, readJson, requireAuth, requireNumber, requireString } from "@/lib/api-helpers"
-import { dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
+import { dhakaDateKey, dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
 import { clientUserId, notifyUsers } from "@/lib/notify"
+import { audit } from "@/lib/audit"
+import { enqueueOutbound } from "@/lib/outbound"
 
 type InvoiceRow = {
   id: string
@@ -153,7 +155,10 @@ export async function POST(request: Request) {
     const body = await readJson<Record<string, unknown>>(request)
 
     const clientId = requireString(body.clientId, "clientId")
-    const client = await db.client.findUnique({ where: { id: clientId }, select: { id: true } })
+    const client = await db.client.findUnique({
+      where: { id: clientId },
+      select: { id: true, name: true, phone: true, email: true, userId: true },
+    })
     if (!client) throw new ApiError("Client not found.", 422)
 
     const amount = requireNumber(body.amount, "amount")
@@ -223,6 +228,25 @@ export async function POST(request: Request) {
       caseId: created.caseId ?? undefined,
       link: created.caseId ? `case-detail:${created.caseId}` : "billing",
     })
+
+    // SMS/Email bridge + audit trail — client profile carries phone/email/userId.
+    const dueLabel = created.dueDate ? dhakaDateKey(created.dueDate) : "on receipt"
+    await enqueueOutbound({
+      event: "INVOICE_ISSUED",
+      recipients: [
+        { phone: client.phone, email: client.email, name: client.name, userId: client.userId },
+      ],
+      subject: `Invoice ${created.invoiceNumber} — AinSheba`,
+      smsBody: `AinSheba: Invoice ${created.invoiceNumber} of ৳${created.amount.toLocaleString("en-US")} issued${
+        created.case ? ` for case ${created.case.caseNumber}` : ""
+      }. Due ${dueLabel}.`,
+      caseId: created.caseId,
+      caseNumber: created.case?.caseNumber ?? null,
+      dedupeKey: `invoice-issued:${created.id}`,
+    })
+
+    await audit(user, "INVOICE_CREATE", "Invoice", created.id, created.invoiceNumber,
+      `Issued invoice ${created.invoiceNumber} of ৳${created.amount.toLocaleString("en-US")} for ${client.name}`)
 
     return Response.json(
       {

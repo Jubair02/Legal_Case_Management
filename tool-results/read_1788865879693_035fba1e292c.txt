@@ -1,0 +1,649 @@
+     1→"use client"
+     2→
+     3→import { useEffect, useMemo, useState } from "react"
+     4→import { toast } from "sonner"
+     5→import {
+     6→  Building2,
+     7→  Gavel,
+     8→  Mail,
+     9→  Pencil,
+    10→  Phone,
+    11→  Plus,
+    12→  Search,
+    13→  Trash2,
+    14→} from "lucide-react"
+    15→
+    16→import { ConfirmDialog } from "@/components/shared/confirm-dialog"
+    17→import { EmptyState } from "@/components/shared/empty-state"
+    18→import { LoadingBlock } from "@/components/shared/loading-block"
+    19→import { PageHeader } from "@/components/shared/page-header"
+    20→import { StatusBadge } from "@/components/shared/status-badge"
+    21→import { useApiData } from "@/hooks/use-api-data"
+    22→import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+    23→import { Badge } from "@/components/ui/badge"
+    24→import { Button } from "@/components/ui/button"
+    25→import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card"
+    26→import {
+    27→  Dialog,
+    28→  DialogContent,
+    29→  DialogDescription,
+    30→  DialogFooter,
+    31→  DialogHeader,
+    32→  DialogTitle,
+    33→} from "@/components/ui/dialog"
+    34→import { Input } from "@/components/ui/input"
+    35→import { Label } from "@/components/ui/label"
+    36→import {
+    37→  Select,
+    38→  SelectContent,
+    39→  SelectItem,
+    40→  SelectTrigger,
+    41→  SelectValue,
+    42→} from "@/components/ui/select"
+    43→import { Switch } from "@/components/ui/switch"
+    44→import { apiSend } from "@/lib/api-client"
+    45→import { SPECIALIZATIONS } from "@/lib/constants"
+    46→import type {
+    47→  CaseListDTO,
+    48→  LawyerDTO,
+    49→  SessionUser,
+    50→  ViewKey,
+    51→  ViewParams,
+    52→  ViewProps,
+    53→} from "@/lib/types"
+    54→import { caseStatusStyles, formatRelativeDay, type StatusStyle } from "@/lib/utils"
+    55→import { isValidEmail } from "@/lib/validation"
+    56→
+    57→type NavigateFn = (view: ViewKey, params?: ViewParams) => void
+    58→
+    59→/** GET /api/lawyers/[id] payload: LawyerDTO + their (role-scoped) cases. */
+    60→interface LawyerDetailResponse extends LawyerDTO {
+    61→  cases: CaseListDTO[]
+    62→}
+    63→
+    64→const lawyerStatusStyles: Record<string, StatusStyle> = {
+    65→  ACTIVE: { label: "Active", className: "bg-emerald-100 text-emerald-800 border-emerald-200" },
+    66→  INACTIVE: { label: "Inactive", className: "bg-stone-100 text-stone-600 border-stone-200" },
+    67→}
+    68→
+    69→/* ------------------------------ Lawyer detail ------------------------------ */
+    70→
+    71→function LawyerDetailDialog({
+    72→  lawyerId,
+    73→  open,
+    74→  onOpenChange,
+    75→  user,
+    76→  navigate,
+    77→  onChanged,
+    78→}: {
+    79→  lawyerId: string | null
+    80→  open: boolean
+    81→  onOpenChange: (open: boolean) => void
+    82→  user: SessionUser
+    83→  navigate: NavigateFn
+    84→  onChanged: () => void
+    85→}) {
+    86→  const isAdmin = user.role === "ADMIN"
+    87→  const { data, loading, error, refetch } = useApiData<LawyerDetailResponse>(
+    88→    open && lawyerId ? `/api/lawyers/${lawyerId}` : null
+    89→  )
+    90→  const [editOpen, setEditOpen] = useState(false)
+    91→  const [deleteOpen, setDeleteOpen] = useState(false)
+    92→
+    93→  const lawyer = data
+    94→  const cases = lawyer?.cases ?? []
+    95→
+    96→  const handleDelete = async () => {
+    97→    if (!lawyer) return
+    98→    await apiSend("DELETE", `/api/lawyers/${lawyer.id}`)
+    99→    toast.success(`${lawyer.name} deleted.`)
+   100→    onChanged()
+   101→    onOpenChange(false)
+   102→  }
+   103→
+   104→  return (
+   105→    <>
+   106→      <Dialog open={open} onOpenChange={onOpenChange}>
+   107→        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+   108→          <DialogHeader>
+   109→            <DialogTitle>Lawyer details</DialogTitle>
+   110→            <DialogDescription>Bar Council credentials, chamber and case load.</DialogDescription>
+   111→          </DialogHeader>
+   112→
+   113→          {loading && !lawyer ? (
+   114→            <div className="space-y-3 py-4" aria-busy="true">
+   115→              <div className="h-14 w-full animate-pulse rounded-lg bg-stone-100" />
+   116→              <div className="h-24 w-full animate-pulse rounded-lg bg-stone-100" />
+   117→            </div>
+   118→          ) : error && !lawyer ? (
+   119→            <div className="py-4">
+   120→              <EmptyState
+   121→                icon={Gavel}
+   122→                title="Could not load this lawyer"
+   123→                description={error}
+   124→                action={
+   125→                  <Button variant="outline" size="sm" onClick={refetch}>
+   126→                    Try again
+   127→                  </Button>
+   128→                }
+   129→              />
+   130→            </div>
+   131→          ) : lawyer ? (
+   132→            <div className="space-y-5">
+   133→              <div className="flex items-start gap-3">
+   134→                <Avatar className="h-12 w-12">
+   135→                  <AvatarFallback className="bg-emerald-100 text-emerald-700">
+   136→                    <Gavel className="h-5 w-5" />
+   137→                  </AvatarFallback>
+   138→                </Avatar>
+   139→                <div className="min-w-0 flex-1">
+   140→                  <div className="flex flex-wrap items-center gap-2">
+   141→                    <p className="truncate text-lg font-semibold tracking-tight">{lawyer.name}</p>
+   142→                    <StatusBadge map={lawyerStatusStyles} value={lawyer.status} />
+   143→                  </div>
+   144→                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+   145→                    {lawyer.barCouncilId ? (
+   146→                      <Badge variant="outline" className="font-mono text-xs text-stone-600">
+   147→                        {lawyer.barCouncilId}
+   148→                      </Badge>
+   149→                    ) : null}
+   150→                    {lawyer.specialization ? (
+   151→                      <Badge variant="outline" className="border border-emerald-200 bg-emerald-50 text-emerald-700">
+   152→                        {lawyer.specialization}
+   153→                      </Badge>
+   154→                    ) : null}
+   155→                  </div>
+   156→                </div>
+   157→              </div>
+   158→
+   159→              <div className="grid grid-cols-1 gap-3 rounded-xl border border-stone-200/80 p-4 sm:grid-cols-2">
+   160→                <div>
+   161→                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Phone</p>
+   162→                  <p className="mt-0.5 text-sm">{lawyer.phone ?? "—"}</p>
+   163→                </div>
+   164→                <div>
+   165→                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Email</p>
+   166→                  <p className="mt-0.5 truncate text-sm">{lawyer.email ?? "—"}</p>
+   167→                </div>
+   168→                <div>
+   169→                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Chamber</p>
+   170→                  <p className="mt-0.5 truncate text-sm">{lawyer.chamberName ?? "—"}</p>
+   171→                </div>
+   172→                <div>
+   173→                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Experience</p>
+   174→                  <p className="mt-0.5 text-sm">{lawyer.experience ?? 0} yrs</p>
+   175→                </div>
+   176→              </div>
+   177→
+   178→              <div>
+   179→                <p className="mb-2 text-sm font-semibold">
+   180→                  Cases <span className="font-normal text-muted-foreground">({cases.length})</span>
+   181→                </p>
+   182→                {cases.length === 0 ? (
+   183→                  <p className="rounded-lg border border-dashed border-stone-200 py-4 text-center text-xs text-muted-foreground">
+   184→                    No cases assigned to this lawyer.
+   185→                  </p>
+   186→                ) : (
+   187→                  <div className="divide-y divide-stone-100 rounded-xl border border-stone-200/80">
+   188→                    {cases.map((c) => (
+   189→                      <button
+   190→                        key={c.id}
+   191→                        type="button"
+   192→                        onClick={() => {
+   193→                          onOpenChange(false)
+   194→                          navigate("case-detail", { id: c.id })
+   195→                        }}
+   196→                        className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-emerald-50/50"
+   197→                      >
+   198→                        <div className="min-w-0">
+   199→                          <p className="text-sm font-semibold">{c.caseNumber}</p>
+   200→                          <p className="truncate text-xs text-muted-foreground">{c.title}</p>
+   201→                        </div>
+   202→                        <div className="flex shrink-0 flex-col items-end gap-1">
+   203→                          <StatusBadge map={caseStatusStyles} value={c.status} />
+   204→                          <span className="text-[11px] text-muted-foreground">
+   205→                            {c.nextHearingDate ? `Hearing ${formatRelativeDay(c.nextHearingDate)}` : "No hearing set"}
+   206→                          </span>
+   207→                        </div>
+   208→                      </button>
+   209→                    ))}
+   210→                  </div>
+   211→                )}
+   212→              </div>
+   213→            </div>
+   214→          ) : null}
+   215→
+   216→          <DialogFooter className="gap-2">
+   217→            {lawyer && isAdmin ? (
+   218→              <Button
+   219→                variant="ghost"
+   220→                className="text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+   221→                onClick={() => setDeleteOpen(true)}
+   222→              >
+   223→                <Trash2 className="h-4 w-4" /> Delete
+   224→              </Button>
+   225→            ) : null}
+   226→            {lawyer && isAdmin ? (
+   227→              <Button variant="outline" onClick={() => setEditOpen(true)}>
+   228→                <Pencil className="h-4 w-4" /> Edit
+   229→              </Button>
+   230→            ) : null}
+   231→            <Button variant="secondary" onClick={() => onOpenChange(false)}>
+   232→              Close
+   233→            </Button>
+   234→          </DialogFooter>
+   235→        </DialogContent>
+   236→      </Dialog>
+   237→
+   238→      {lawyer ? (
+   239→        <LawyerFormDialog
+   240→          open={editOpen}
+   241→          onOpenChange={setEditOpen}
+   242→          lawyer={lawyer}
+   243→          onSaved={() => {
+   244→            refetch()
+   245→            onChanged()
+   246→          }}
+   247→        />
+   248→      ) : null}
+   249→
+   250→      <ConfirmDialog
+   251→        open={deleteOpen}
+   252→        onOpenChange={setDeleteOpen}
+   253→        title="Delete this lawyer?"
+   254→        description={`${lawyer?.name ?? "This lawyer"} will be removed permanently. Lawyers with assigned cases cannot be deleted.`}
+   255→        confirmLabel="Delete lawyer"
+   256→        destructive
+   257→        onConfirm={handleDelete}
+   258→      />
+   259→    </>
+   260→  )
+   261→}
+   262→
+   263→/* ------------------------------- Lawyer form ------------------------------- */
+   264→
+   265→export interface LawyerFormDialogProps {
+   266→  open: boolean
+   267→  onOpenChange: (open: boolean) => void
+   268→  /** When set the dialog edits this lawyer; otherwise it creates a new one. */
+   269→  lawyer?: LawyerDTO | null
+   270→  onSaved: () => void
+   271→}
+   272→
+   273→export function LawyerFormDialog({ open, onOpenChange, lawyer, onSaved }: LawyerFormDialogProps) {
+   274→  const isEdit = Boolean(lawyer)
+   275→  const [name, setName] = useState("")
+   276→  const [phone, setPhone] = useState("")
+   277→  const [email, setEmail] = useState("")
+   278→  const [barCouncilId, setBarCouncilId] = useState("")
+   279→  const [specialization, setSpecialization] = useState("__none__")
+   280→  const [chamberName, setChamberName] = useState("")
+   281→  const [experience, setExperience] = useState("")
+   282→  const [status, setStatus] = useState("ACTIVE")
+   283→  const [portal, setPortal] = useState(false)
+   284→  const [password, setPassword] = useState("")
+   285→  const [pending, setPending] = useState(false)
+   286→
+   287→  useEffect(() => {
+   288→    if (!open) return
+   289→    setName(lawyer?.name ?? "")
+   290→    setPhone(lawyer?.phone ?? "")
+   291→    setEmail(lawyer?.email ?? "")
+   292→    setBarCouncilId(lawyer?.barCouncilId ?? "")
+   293→    setSpecialization(lawyer?.specialization && SPECIALIZATIONS.includes(lawyer.specialization as (typeof SPECIALIZATIONS)[number]) ? lawyer.specialization : "__none__")
+   294→    setChamberName(lawyer?.chamberName ?? "")
+   295→    setExperience(lawyer?.experience != null ? String(lawyer.experience) : "")
+   296→    setStatus(lawyer?.status === "INACTIVE" ? "INACTIVE" : "ACTIVE")
+   297→    setPortal(false)
+   298→    setPassword("")
+   299→    setPending(false)
+   300→  }, [open, lawyer])
+   301→
+   302→  const submit = async () => {
+   303→    if (!name.trim()) {
+   304→      toast.error("Lawyer name is required.")
+   305→      return
+   306→    }
+   307→    const expNum = experience.trim() === "" ? null : Number(experience)
+   308→    if (expNum !== null && (Number.isNaN(expNum) || expNum < 0)) {
+   309→      toast.error("Experience must be a non-negative number.")
+   310→      return
+   311→    }
+   312→    if (!isEdit && portal) {
+   313→      if (!email.trim() || !isValidEmail(email)) {
+   314→        toast.error("Please enter a valid email address.")
+   315→        return
+   316→      }
+   317→      if (password.length < 6) {
+   318→        toast.error("Portal password must be at least 6 characters.")
+   319→        return
+   320→      }
+   321→    }
+   322→    const base = {
+   323→      name: name.trim(),
+   324→      phone: phone.trim() || null,
+   325→      email: email.trim() || null,
+   326→      barCouncilId: barCouncilId.trim() || null,
+   327→      specialization: specialization === "__none__" ? null : specialization,
+   328→      chamberName: chamberName.trim() || null,
+   329→      experience: expNum,
+   330→    }
+   331→    try {
+   332→      setPending(true)
+   333→      if (isEdit && lawyer) {
+   334→        await apiSend<LawyerDTO>("PATCH", `/api/lawyers/${lawyer.id}`, { ...base, status })
+   335→        toast.success("Lawyer updated.")
+   336→      } else {
+   337→        await apiSend<LawyerDTO>("POST", "/api/lawyers", {
+   338→          ...base,
+   339→          ...(portal ? { createPortalAccess: true, password } : {}),
+   340→        })
+   341→        toast.success(portal ? "Lawyer created with portal access." : "Lawyer created.")
+   342→      }
+   343→      onOpenChange(false)
+   344→      onSaved()
+   345→    } catch (e) {
+   346→      toast.error(e instanceof Error ? e.message : "Could not save the lawyer.")
+   347→    } finally {
+   348→      setPending(false)
+   349→    }
+   350→  }
+   351→
+   352→  return (
+   353→    <Dialog open={open} onOpenChange={onOpenChange}>
+   354→      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+   355→        <DialogHeader>
+   356→          <DialogTitle>{isEdit ? "Edit lawyer" : "Add lawyer"}</DialogTitle>
+   357→          <DialogDescription>
+   358→            {isEdit ? "Update the advocate's credentials and status." : "Register an advocate of the chamber."}
+   359→          </DialogDescription>
+   360→        </DialogHeader>
+   361→
+   362→        <div className="space-y-4">
+   363→          <div className="space-y-1.5">
+   364→            <Label htmlFor="lawyer-name">
+   365→              Name <span className="text-rose-500">*</span>
+   366→            </Label>
+   367→            <Input
+   368→              id="lawyer-name"
+   369→              value={name}
+   370→              onChange={(e) => setName(e.target.value)}
+   371→              placeholder="e.g. Kamal Hossain"
+   372→              autoFocus
+   373→            />
+   374→          </div>
+   375→
+   376→          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+   377→            <div className="space-y-1.5">
+   378→              <Label htmlFor="lawyer-phone">Phone</Label>
+   379→              <Input id="lawyer-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+8801XXXXXXXXX" />
+   380→            </div>
+   381→            <div className="space-y-1.5">
+   382→              <Label htmlFor="lawyer-email">Email</Label>
+   383→              <Input id="lawyer-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="lawyer@chamber.bd" />
+   384→            </div>
+   385→            <div className="space-y-1.5">
+   386→              <Label htmlFor="lawyer-bar">Bar Council ID</Label>
+   387→              <Input id="lawyer-bar" value={barCouncilId} onChange={(e) => setBarCouncilId(e.target.value)} placeholder="e.g. D-12345" />
+   388→            </div>
+   389→            <div className="space-y-1.5">
+   390→              <Label htmlFor="lawyer-specialization">Specialization</Label>
+   391→              <Select value={specialization} onValueChange={setSpecialization}>
+   392→                <SelectTrigger id="lawyer-specialization" className="w-full">
+   393→                  <SelectValue placeholder="Not specified" />
+   394→                </SelectTrigger>
+   395→                <SelectContent>
+   396→                  <SelectItem value="__none__">Not specified</SelectItem>
+   397→                  {SPECIALIZATIONS.map((s) => (
+   398→                    <SelectItem key={s} value={s}>
+   399→                      {s}
+   400→                    </SelectItem>
+   401→                  ))}
+   402→                </SelectContent>
+   403→              </Select>
+   404→            </div>
+   405→            <div className="space-y-1.5">
+   406→              <Label htmlFor="lawyer-chamber">Chamber name</Label>
+   407→              <Input id="lawyer-chamber" value={chamberName} onChange={(e) => setChamberName(e.target.value)} placeholder="e.g. Hossain & Associates" />
+   408→            </div>
+   409→            <div className="space-y-1.5">
+   410→              <Label htmlFor="lawyer-experience">Experience (years)</Label>
+   411→              <Input
+   412→                id="lawyer-experience"
+   413→                type="number"
+   414→                min={0}
+   415→                value={experience}
+   416→                onChange={(e) => setExperience(e.target.value)}
+   417→                placeholder="e.g. 12"
+   418→              />
+   419→            </div>
+   420→            {isEdit ? (
+   421→              <div className="space-y-1.5">
+   422→                <Label htmlFor="lawyer-status">Status</Label>
+   423→                <Select value={status} onValueChange={setStatus}>
+   424→                  <SelectTrigger id="lawyer-status" className="w-full">
+   425→                    <SelectValue placeholder="Select status" />
+   426→                  </SelectTrigger>
+   427→                  <SelectContent>
+   428→                    <SelectItem value="ACTIVE">Active</SelectItem>
+   429→                    <SelectItem value="INACTIVE">Inactive</SelectItem>
+   430→                  </SelectContent>
+   431→                </Select>
+   432→              </div>
+   433→            ) : null}
+   434→          </div>
+   435→
+   436→          {!isEdit ? (
+   437→            <div className="space-y-3 rounded-lg border border-stone-200 bg-stone-50 p-3">
+   438→              <div className="flex items-center justify-between gap-3">
+   439→                <div className="min-w-0">
+   440→                  <Label htmlFor="lawyer-portal">Create lawyer portal account</Label>
+   441→                  <p className="text-xs text-muted-foreground">Lawyer signs in with their email + this password</p>
+   442→                </div>
+   443→                <Switch id="lawyer-portal" checked={portal} onCheckedChange={setPortal} />
+   444→              </div>
+   445→              {portal ? (
+   446→                <div className="space-y-1.5">
+   447→                  <Label htmlFor="lawyer-portal-password">Portal password</Label>
+   448→                  <Input
+   449→                    id="lawyer-portal-password"
+   450→                    type="password"
+   451→                    value={password}
+   452→                    onChange={(e) => setPassword(e.target.value)}
+   453→                    placeholder="Minimum 6 characters"
+   454→                    autoComplete="new-password"
+   455→                  />
+   456→                  <p className="text-xs text-muted-foreground">Minimum 6 characters.</p>
+   457→                </div>
+   458→              ) : null}
+   459→            </div>
+   460→          ) : null}
+   461→        </div>
+   462→
+   463→        <DialogFooter>
+   464→          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+   465→            Cancel
+   466→          </Button>
+   467→          <Button onClick={submit} disabled={pending}>
+   468→            {pending ? "Saving…" : isEdit ? "Save changes" : "Create lawyer"}
+   469→          </Button>
+   470→        </DialogFooter>
+   471→      </DialogContent>
+   472→    </Dialog>
+   473→  )
+   474→}
+   475→
+   476→/* ---------------------------------- View ---------------------------------- */
+   477→
+   478→export default function LawyersView({ user, navigate }: ViewProps) {
+   479→  const isAdmin = user.role === "ADMIN"
+   480→  const { data, loading, error, refetch } = useApiData<LawyerDTO[]>("/api/lawyers")
+   481→
+   482→  const [search, setSearch] = useState("")
+   483→  const [specFilter, setSpecFilter] = useState("ALL")
+   484→  const [statusFilter, setStatusFilter] = useState("ALL")
+   485→  const [detailId, setDetailId] = useState<string | null>(null)
+   486→  const [createOpen, setCreateOpen] = useState(false)
+   487→
+   488→  const lawyers = useMemo(() => data ?? [], [data])
+   489→  const filtered = useMemo(() => {
+   490→    const q = search.trim().toLowerCase()
+   491→    return lawyers.filter((l) => {
+   492→      if (specFilter !== "ALL" && (l.specialization ?? "__none__") !== specFilter) return false
+   493→      if (statusFilter !== "ALL" && l.status !== statusFilter) return false
+   494→      if (!q) return true
+   495→      return [l.name, l.email, l.phone, l.barCouncilId, l.chamberName].some((v) =>
+   496→        (v ?? "").toLowerCase().includes(q)
+   497→      )
+   498→    })
+   499→  }, [lawyers, search, specFilter, statusFilter])
+   500→
+   501→  return (
+   502→    <div className="space-y-6">
+   503→      <PageHeader title="Lawyers / Advocates" description="Bar Council credentials, specializations and case loads.">
+   504→        {isAdmin ? (
+   505→          <Button onClick={() => setCreateOpen(true)}>
+   506→            <Plus className="h-4 w-4" /> Add Lawyer
+   507→          </Button>
+   508→        ) : null}
+   509→      </PageHeader>
+   510→
+   511→      <div className="flex flex-col gap-2 md:flex-row md:items-center">
+   512→        <div className="relative flex-1">
+   513→          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+   514→          <Input
+   515→            value={search}
+   516→            onChange={(e) => setSearch(e.target.value)}
+   517→            placeholder="Search by name, email, Bar Council ID…"
+   518→            className="pl-8"
+   519→          />
+   520→        </div>
+   521→        <div className="flex flex-col gap-2 sm:flex-row">
+   522→          <Select value={specFilter} onValueChange={setSpecFilter}>
+   523→            <SelectTrigger className="w-full md:w-[190px]">
+   524→              <SelectValue placeholder="All specializations" />
+   525→            </SelectTrigger>
+   526→            <SelectContent>
+   527→              <SelectItem value="ALL">All specializations</SelectItem>
+   528→              {SPECIALIZATIONS.map((s) => (
+   529→                <SelectItem key={s} value={s}>
+   530→                  {s}
+   531→                </SelectItem>
+   532→              ))}
+   533→            </SelectContent>
+   534→          </Select>
+   535→          <Select value={statusFilter} onValueChange={setStatusFilter}>
+   536→            <SelectTrigger className="w-full md:w-[150px]">
+   537→              <SelectValue placeholder="All statuses" />
+   538→            </SelectTrigger>
+   539→            <SelectContent>
+   540→              <SelectItem value="ALL">All statuses</SelectItem>
+   541→              <SelectItem value="ACTIVE">Active</SelectItem>
+   542→              <SelectItem value="INACTIVE">Inactive</SelectItem>
+   543→            </SelectContent>
+   544→          </Select>
+   545→        </div>
+   546→      </div>
+   547→
+   548→      {loading && !data ? (
+   549→        <LoadingBlock />
+   550→      ) : error && !data ? (
+   551→        <EmptyState
+   552→          icon={Gavel}
+   553→          title="Could not load lawyers"
+   554→          description={error}
+   555→          action={
+   556→            <Button variant="outline" size="sm" onClick={refetch}>
+   557→              Try again
+   558→            </Button>
+   559→          }
+   560→        />
+   561→      ) : lawyers.length === 0 ? (
+   562→        <EmptyState icon={Gavel} title="No lawyers yet" description="Add advocates to assign them to cases." />
+   563→      ) : filtered.length === 0 ? (
+   564→        <EmptyState icon={Search} title="No lawyers match" description="Try a different search or filter." />
+   565→      ) : (
+   566→        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+   567→          {filtered.map((l) => (
+   568→            <Card
+   569→              key={l.id}
+   570→              role="button"
+   571→              tabIndex={0}
+   572→              aria-label={`Open lawyer ${l.name}`}
+   573→              onClick={() => setDetailId(l.id)}
+   574→              onKeyDown={(e) => {
+   575→                if (e.key === "Enter" || e.key === " ") {
+   576→                  e.preventDefault()
+   577→                  setDetailId(l.id)
+   578→                }
+   579→              }}
+   580→              className="cursor-pointer gap-3 border-stone-200/80 py-4 transition-colors hover:border-emerald-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+   581→            >
+   582→              <CardHeader className="px-4">
+   583→                <div className="flex items-start gap-3">
+   584→                  <Avatar className="h-10 w-10">
+   585→                    <AvatarFallback className="bg-emerald-100 text-emerald-700">
+   586→                      <Gavel className="h-5 w-5" />
+   587→                    </AvatarFallback>
+   588→                  </Avatar>
+   589→                  <div className="min-w-0 flex-1">
+   590→                    <p className="truncate font-semibold leading-tight">{l.name}</p>
+   591→                    {l.barCouncilId ? (
+   592→                      <Badge variant="outline" className="mt-1.5 font-mono text-[11px] text-stone-600">
+   593→                        {l.barCouncilId}
+   594→                      </Badge>
+   595→                    ) : null}
+   596→                  </div>
+   597→                </div>
+   598→              </CardHeader>
+   599→              <CardContent className="space-y-1.5 px-4 text-sm">
+   600→                {l.specialization ? (
+   601→                  <div>
+   602→                    <Badge variant="outline" className="border border-emerald-200 bg-emerald-50 text-emerald-700">
+   603→                      {l.specialization}
+   604→                    </Badge>
+   605→                  </div>
+   606→                ) : null}
+   607→                <div className="flex items-center gap-2">
+   608→                  <Building2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+   609→                  <span className="truncate text-muted-foreground">{l.chamberName ?? "—"}</span>
+   610→                </div>
+   611→                <div className="flex items-center gap-2">
+   612→                  <Phone className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+   613→                  <span className="truncate text-muted-foreground">{l.phone ?? "—"}</span>
+   614→                </div>
+   615→                <div className="flex items-center gap-2">
+   616→                  <Mail className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+   617→                  <span className="truncate text-muted-foreground">{l.email ?? "—"}</span>
+   618→                </div>
+   619→              </CardContent>
+   620→              <CardFooter className="justify-between gap-2 border-t border-stone-100 px-4 pt-3 text-xs text-muted-foreground">
+   621→                <span>
+   622→                  {l.activeCases} active / {l.totalCases} total cases
+   623→                </span>
+   624→                <span className="flex shrink-0 items-center gap-2">
+   625→                  <span>{l.experience ?? 0} yrs experience</span>
+   626→                  <StatusBadge map={lawyerStatusStyles} value={l.status} />
+   627→                </span>
+   628→              </CardFooter>
+   629→            </Card>
+   630→          ))}
+   631→        </div>
+   632→      )}
+   633→
+   634→      <LawyerDetailDialog
+   635→        lawyerId={detailId}
+   636→        open={detailId !== null}
+   637→        onOpenChange={(open) => {
+   638→          if (!open) setDetailId(null)
+   639→        }}
+   640→        user={user}
+   641→        navigate={navigate}
+   642→        onChanged={refetch}
+   643→      />
+   644→
+   645→      <LawyerFormDialog open={createOpen} onOpenChange={setCreateOpen} lawyer={null} onSaved={refetch} />
+   646→    </div>
+   647→  )
+   648→}
+   649→

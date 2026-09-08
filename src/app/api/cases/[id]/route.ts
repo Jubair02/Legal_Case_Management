@@ -5,6 +5,7 @@ import { assertCaseReadAccess, assertCaseWriteAccess } from "@/lib/permissions"
 import { CASE_PRIORITIES, CASE_STATUSES, CASE_TYPES } from "@/lib/constants"
 import { dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
 import { clientUserId, lawyerUserId, notifyUsers } from "@/lib/notify"
+import { audit, diffFields } from "@/lib/audit"
 
 // ---------- shared DTO builders ----------
 
@@ -326,7 +327,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       }
     }
 
-    await db.case.update({ where: { id }, data: data as never })
+    const updated = await db.case.update({ where: { id }, data: data as never })
 
     // Notifications
     if (lawyerChanged && data.lawyerId) {
@@ -353,6 +354,30 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       })
     }
 
+    // Audit trail — field diffs, status transition and assignment changes.
+    const caseDiff = diffFields(
+      kase as unknown as Record<string, unknown>,
+      updated as unknown as Record<string, unknown>,
+      [
+        "title",
+        "type",
+        "district",
+        "filingDate",
+        "oppositeParty",
+        "description",
+        "status",
+        "priority",
+        ...(body.lawyerId !== undefined ? ["lawyerId"] : []),
+      ]
+    )
+    const clientChanged = typeof data.clientId === "string" && data.clientId !== kase.clientId
+    const statusChanged = newStatus !== null && newStatus !== kase.status
+    const summaryParts = [`Updated case ${kase.caseNumber} — ${kase.title}`]
+    if (statusChanged) summaryParts.push(`Status ${kase.status} → ${newStatus}`)
+    if (lawyerChanged) summaryParts.push("assignedLawyer updated")
+    if (clientChanged) summaryParts.push("assignedClient updated")
+    await audit(user, "CASE_UPDATE", "Case", id, kase.caseNumber, summaryParts.join(". "), caseDiff)
+
     return Response.json({ data: await buildCaseDetail(user.role, id) })
   })
 }
@@ -363,7 +388,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   return handle(async () => {
     const user = await requireAuth(["ADMIN"])
     const { id } = await params
-    const kase = await db.case.findUnique({ where: { id }, select: { id: true } })
+    const kase = await db.case.findUnique({ where: { id }, select: { id: true, caseNumber: true, title: true } })
     if (!kase) throw new ApiError("Case not found.", 404)
 
     const invoiceCount = await db.invoice.count({ where: { caseId: id } })
@@ -388,6 +413,9 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
         // best-effort file removal
       }
     }
+
+    await audit(user, "CASE_DELETE", "Case", id, kase.caseNumber,
+      `Deleted case ${kase.caseNumber} — ${kase.title}`)
 
     return Response.json({ data: { ok: true } })
   })

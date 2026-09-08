@@ -53,18 +53,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { apiSend } from "@/lib/api-client"
 import { BILLING_TYPES, INVOICE_STATUSES, PAYMENT_METHODS } from "@/lib/constants"
+import { statusLabel, useLanguage, type TranslateFn } from "@/lib/i18n/language"
 import type { CaseListDTO, ClientDTO, InvoiceDTO, PaymentDTO, ViewKey, ViewParams, ViewProps } from "@/lib/types"
 import { cn, formatCurrency, formatDate, invoiceStatusStyles, toDateInputValue } from "@/lib/utils"
 
 type NavigateFn = (view: ViewKey, params?: ViewParams) => void
-
-const INVOICE_STATUS_LABELS: Record<string, string> = {
-  UNPAID: "Unpaid",
-  PARTIAL: "Partial",
-  PAID: "Paid",
-  OVERDUE: "Overdue",
-  CANCELLED: "Cancelled",
-}
 
 const ALL = "ALL"
 const NO_CASE = "NONE"
@@ -73,8 +66,41 @@ function num(v: number | null | undefined): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0
 }
 
-function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : "Something went wrong. Please try again."
+/**
+ * Builds a derived enum dictionary key: enumTKey("billing.method", "bKash")
+ * → "billing.methodBkash". Non-alphanumeric runs split words.
+ */
+function enumTKey(prefix: string, value: string): string {
+  return (
+    prefix +
+    value
+      .split(/[^a-zA-Z0-9]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join("")
+  )
+}
+
+/** Translates a domain enum value (billing types, payment methods), falling back to the raw value. */
+function enumLabel(prefix: string, value: string | null | undefined, t: TranslateFn): string {
+  if (!value) return "—"
+  const key = enumTKey(prefix, value)
+  const translated = t(key)
+  return translated === key ? value : translated
+}
+
+/** Re-labels a StatusStyle map with translated status labels (styles untouched). */
+function translatedStyles(
+  map: Record<string, { label: string; className: string }>,
+  t: TranslateFn
+): Record<string, { label: string; className: string }> {
+  return Object.fromEntries(
+    Object.entries(map).map(([value, style]) => [value, { ...style, label: statusLabel(value, t) }])
+  )
+}
+
+function errorMessage(e: unknown, fallback: string): string {
+  return e instanceof Error ? e.message : fallback
 }
 
 /** Case number chip that opens the case file when clicked. */
@@ -87,14 +113,15 @@ function CaseChip({
   caseNumber?: string | null
   onOpen?: (id: string) => void
 }) {
+  const { t } = useLanguage()
   if (!caseId) return <span className="text-sm text-muted-foreground">—</span>
   return (
-    <button type="button" onClick={() => onOpen?.(caseId)} className="inline-flex" title="Open case file">
+    <button type="button" onClick={() => onOpen?.(caseId)} className="inline-flex" title={t("ui.openCaseFile")}>
       <Badge
         variant="outline"
         className="cursor-pointer border-emerald-200 bg-emerald-50 text-emerald-700 transition-colors hover:bg-emerald-100"
       >
-        {caseNumber ?? "Case"}
+        {caseNumber ?? t("billing.chipCase")}
       </Badge>
     </button>
   )
@@ -119,6 +146,7 @@ function RecordPaymentDialog({
   const [reference, setReference] = useState("")
   const [notes, setNotes] = useState("")
   const [pending, setPending] = useState(false)
+  const { t } = useLanguage()
 
   const remaining = invoice ? Math.max(0, num(invoice.amount) - num(invoice.paidAmount)) : 0
 
@@ -136,11 +164,11 @@ function RecordPaymentDialog({
     if (!invoice) return
     const amt = Number(amount)
     if (!Number.isFinite(amt) || amt <= 0) {
-      toast.error("Enter an amount greater than 0.")
+      toast.error(t("billing.errAmountPos"))
       return
     }
     if (amt > remaining + 0.005) {
-      toast.error(`Payment exceeds the remaining due of ${formatCurrency(remaining)}.`)
+      toast.error(t("billing.errExceeds", { amount: formatCurrency(remaining) }))
       return
     }
     setPending(true)
@@ -153,11 +181,11 @@ function RecordPaymentDialog({
         referenceNumber: reference.trim() || undefined,
         notes: notes.trim() || undefined,
       })
-      toast.success("Payment recorded")
+      toast.success(t("billing.toastPaymentRecorded"))
       onSaved()
       onOpenChange(false)
     } catch (e) {
-      toast.error(errorMessage(e))
+      toast.error(errorMessage(e, t("billing.errGeneric")))
     } finally {
       setPending(false)
     }
@@ -167,8 +195,8 @@ function RecordPaymentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Record Payment</DialogTitle>
-          <DialogDescription>Record a client payment against this invoice.</DialogDescription>
+          <DialogTitle>{t("billing.recordPayment")}</DialogTitle>
+          <DialogDescription>{t("billing.recordPaymentDesc")}</DialogDescription>
         </DialogHeader>
 
         {invoice ? (
@@ -176,25 +204,25 @@ function RecordPaymentDialog({
             <div className="space-y-1 rounded-lg border border-stone-200/80 bg-stone-50/60 p-3 text-sm">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono font-semibold">{invoice.invoiceNumber}</span>
-                <StatusBadge map={invoiceStatusStyles} value={invoice.status} />
+                <StatusBadge map={translatedStyles(invoiceStatusStyles, t)} value={invoice.status} />
               </div>
               <p className="text-muted-foreground">{invoice.clientName}</p>
               <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground">
                 <span>
-                  Amount: <span className="font-semibold text-foreground">{formatCurrency(invoice.amount)}</span>
+                  {t("billing.amountLabel")} <span className="font-semibold text-foreground">{formatCurrency(invoice.amount)}</span>
                 </span>
                 <span>
-                  Paid: <span className="font-semibold text-foreground">{formatCurrency(invoice.paidAmount)}</span>
+                  {t("billing.paidLabel")} <span className="font-semibold text-foreground">{formatCurrency(invoice.paidAmount)}</span>
                 </span>
                 <span>
-                  Remaining: <span className="font-bold text-emerald-700">{formatCurrency(remaining)}</span>
+                  {t("billing.remainingLabel")} <span className="font-bold text-emerald-700">{formatCurrency(remaining)}</span>
                 </span>
               </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="payment-amount">Amount (৳) *</Label>
+                <Label htmlFor="payment-amount">{t("billing.amountTaka")}</Label>
                 <Input
                   id="payment-amount"
                   type="number"
@@ -206,22 +234,22 @@ function RecordPaymentDialog({
                 />
               </div>
               <div className="space-y-2">
-                <Label>Payment Method *</Label>
+                <Label>{t("billing.paymentMethodReq")}</Label>
                 <Select value={method} onValueChange={setMethod}>
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select method" />
+                    <SelectValue placeholder={t("billing.selectMethod")} />
                   </SelectTrigger>
                   <SelectContent>
                     {PAYMENT_METHODS.map((m) => (
                       <SelectItem key={m} value={m}>
-                        {m}
+                        {enumLabel("billing.method", m, t)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="payment-date">Payment Date</Label>
+                <Label htmlFor="payment-date">{t("billing.paymentDate")}</Label>
                 <Input
                   id="payment-date"
                   type="date"
@@ -230,23 +258,23 @@ function RecordPaymentDialog({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="payment-reference">Reference Number</Label>
+                <Label htmlFor="payment-reference">{t("billing.referenceNumber")}</Label>
                 <Input
                   id="payment-reference"
                   value={reference}
                   onChange={(e) => setReference(e.target.value)}
-                  placeholder="bKash TrxID / Bank ref"
+                  placeholder={t("billing.referencePh")}
                 />
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="payment-notes">Notes</Label>
+              <Label htmlFor="payment-notes">{t("common.notes")}</Label>
               <Textarea
                 id="payment-notes"
                 rows={2}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Optional note about this payment"
+                placeholder={t("billing.notesPh")}
               />
             </div>
           </div>
@@ -254,10 +282,10 @@ function RecordPaymentDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={() => void submit()} disabled={pending}>
-            {pending ? "Saving…" : "Record Payment"}
+            {pending ? t("common.saving") : t("billing.recordPayment")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -283,24 +311,25 @@ function InvoiceDetailsDialog({
   const amount = num(inv?.amount)
   const percent = amount > 0 ? Math.min(100, Math.round((paid / amount) * 100)) : 0
   const payments = inv?.payments ?? []
+  const { t } = useLanguage()
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="font-mono">{inv?.invoiceNumber ?? "Invoice"}</DialogTitle>
-          <DialogDescription>Invoice details & payment history.</DialogDescription>
+          <DialogTitle className="font-mono">{inv?.invoiceNumber ?? t("billing.invoiceWord")}</DialogTitle>
+          <DialogDescription>{t("billing.detailsDesc")}</DialogDescription>
         </DialogHeader>
 
         {inv ? (
           <div className="space-y-5">
             <div className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
               <div>
-                <p className="text-xs text-muted-foreground">Client</p>
+                <p className="text-xs text-muted-foreground">{t("billing.colClient")}</p>
                 <p className="font-medium">{inv.clientName}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Case</p>
+                <p className="text-xs text-muted-foreground">{t("billing.colCase")}</p>
                 <CaseChip
                   caseId={inv.caseId}
                   caseNumber={inv.caseNumber}
@@ -308,26 +337,26 @@ function InvoiceDetailsDialog({
                 />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Billing Type</p>
-                <p className="font-medium">{inv.billingType ?? "—"}</p>
+                <p className="text-xs text-muted-foreground">{t("billing.colBillingType")}</p>
+                <p className="font-medium">{inv.billingType ? enumLabel("billing.type", inv.billingType, t) : "—"}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Status</p>
-                <StatusBadge map={invoiceStatusStyles} value={inv.status} />
+                <p className="text-xs text-muted-foreground">{t("common.status")}</p>
+                <StatusBadge map={translatedStyles(invoiceStatusStyles, t)} value={inv.status} />
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Amount</p>
+                <p className="text-xs text-muted-foreground">{t("common.amount")}</p>
                 <p className="font-bold">{formatCurrency(amount)}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">Due Date</p>
+                <p className="text-xs text-muted-foreground">{t("common.dueDate")}</p>
                 <p className={cn("font-medium", inv.status === "OVERDUE" && "text-rose-600")}>
                   {formatDate(inv.dueDate)}
                 </p>
               </div>
               {inv.description ? (
                 <div className="sm:col-span-2">
-                  <p className="text-xs text-muted-foreground">Description</p>
+                  <p className="text-xs text-muted-foreground">{t("common.description")}</p>
                   <p className="whitespace-pre-wrap text-sm">{inv.description}</p>
                 </div>
               ) : null}
@@ -336,7 +365,7 @@ function InvoiceDetailsDialog({
             <div className="space-y-2 rounded-lg border border-stone-200/80 bg-stone-50/60 p-4">
               <div className="flex items-center justify-between gap-2 text-sm">
                 <span className="font-medium">
-                  Paid {formatCurrency(paid)} of {formatCurrency(amount)}
+                  {t("billing.paidOf", { paid: formatCurrency(paid), total: formatCurrency(amount) })}
                 </span>
                 <span className="text-muted-foreground">{percent}%</span>
               </div>
@@ -344,28 +373,28 @@ function InvoiceDetailsDialog({
             </div>
 
             <div>
-              <p className="mb-2 text-sm font-semibold">Payments</p>
+              <p className="mb-2 text-sm font-semibold">{t("billing.paymentsTitle")}</p>
               {payments.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-stone-200 py-6 text-center text-sm text-muted-foreground">
-                  No payments recorded yet.
+                  {t("billing.noPayments")}
                 </p>
               ) : (
                 <div className="overflow-hidden rounded-lg border border-stone-200/80">
                   <Table>
                     <TableHeader>
                       <TableRow className="hover:bg-transparent">
-                        <TableHead>Date</TableHead>
-                        <TableHead>Method</TableHead>
-                        <TableHead className="text-right">Amount</TableHead>
-                        <TableHead>Reference</TableHead>
-                        <TableHead>Received By</TableHead>
+                        <TableHead>{t("common.date")}</TableHead>
+                        <TableHead>{t("billing.colMethod")}</TableHead>
+                        <TableHead className="text-right">{t("common.amount")}</TableHead>
+                        <TableHead>{t("billing.colReference")}</TableHead>
+                        <TableHead>{t("billing.colReceivedBy")}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {payments.map((p) => (
                         <TableRow key={p.id}>
                           <TableCell>{formatDate(p.paymentDate)}</TableCell>
-                          <TableCell>{p.paymentMethod}</TableCell>
+                          <TableCell>{enumLabel("billing.method", p.paymentMethod, t)}</TableCell>
                           <TableCell className="text-right font-semibold text-emerald-700">
                             {formatCurrency(p.amount)}
                           </TableCell>
@@ -411,6 +440,7 @@ function NewInvoiceDialog({
   const [amount, setAmount] = useState("")
   const [dueDate, setDueDate] = useState("")
   const [pending, setPending] = useState(false)
+  const { t } = useLanguage()
 
   useEffect(() => {
     if (open) {
@@ -433,16 +463,16 @@ function NewInvoiceDialog({
 
   const submit = async () => {
     if (!clientId) {
-      toast.error("Please select a client.")
+      toast.error(t("cases.errSelectClient"))
       return
     }
     if (requireCase && (!caseId || caseId === NO_CASE)) {
-      toast.error("Please select a case for this invoice.")
+      toast.error(t("billing.errSelectCase"))
       return
     }
     const amt = Number(amount)
     if (!Number.isFinite(amt) || amt <= 0) {
-      toast.error("Amount must be greater than 0.")
+      toast.error(t("billing.errAmountNew"))
       return
     }
     setPending(true)
@@ -455,11 +485,11 @@ function NewInvoiceDialog({
         amount: amt,
         dueDate: dueDate || undefined,
       })
-      toast.success("Invoice created")
+      toast.success(t("billing.toastCreated"))
       onSaved()
       onOpenChange(false)
     } catch (e) {
-      toast.error(errorMessage(e))
+      toast.error(errorMessage(e, t("billing.errGeneric")))
     } finally {
       setPending(false)
     }
@@ -469,16 +499,16 @@ function NewInvoiceDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>New Invoice</DialogTitle>
-          <DialogDescription>Issue a new invoice to a client.</DialogDescription>
+          <DialogTitle>{t("billing.newInvoice")}</DialogTitle>
+          <DialogDescription>{t("billing.newInvoiceDesc")}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Client *</Label>
+            <Label>{t("billing.clientReq")}</Label>
             <Select value={clientId || undefined} onValueChange={setClientId}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder={clientsQ.loading ? "Loading clients…" : "Select client"} />
+                <SelectValue placeholder={clientsQ.loading ? t("ui.loadingClients") : t("ui.selectClient")} />
               </SelectTrigger>
               <SelectContent>
                 {(clientsQ.data ?? []).map((c) => (
@@ -491,13 +521,13 @@ function NewInvoiceDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Case (optional)</Label>
+            <Label>{t("billing.caseOptional")}</Label>
             <Select value={caseId} onValueChange={onCaseChange}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder={casesQ.loading ? "Loading cases…" : "No case"} />
+                <SelectValue placeholder={casesQ.loading ? t("ui.loadingCases") : t("billing.noCasePh")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NO_CASE}>No case (unlinked)</SelectItem>
+                <SelectItem value={NO_CASE}>{t("billing.noCaseOption")}</SelectItem>
                 {(casesQ.data ?? []).map((c) => (
                   <SelectItem key={c.id} value={c.id}>
                     {c.caseNumber} — {c.title}
@@ -505,27 +535,27 @@ function NewInvoiceDialog({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">Choosing a case auto-selects its client.</p>
+            <p className="text-xs text-muted-foreground">{t("billing.caseAutoClient")}</p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Billing Type</Label>
+              <Label>{t("billing.colBillingType")}</Label>
               <Select value={billingType} onValueChange={setBillingType}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {BILLING_TYPES.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
+                  {BILLING_TYPES.map((bt) => (
+                    <SelectItem key={bt} value={bt}>
+                      {enumLabel("billing.type", bt, t)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="invoice-amount">Amount (৳) *</Label>
+              <Label htmlFor="invoice-amount">{t("billing.amountTaka")}</Label>
               <Input
                 id="invoice-amount"
                 type="number"
@@ -540,28 +570,28 @@ function NewInvoiceDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="invoice-due">Due Date</Label>
+            <Label htmlFor="invoice-due">{t("common.dueDate")}</Label>
             <Input id="invoice-due" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="invoice-description">Description</Label>
+            <Label htmlFor="invoice-description">{t("common.description")}</Label>
             <Textarea
               id="invoice-description"
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="What this invoice covers"
+              placeholder={t("billing.descriptionPh")}
             />
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={() => void submit()} disabled={pending}>
-            {pending ? "Creating…" : "Create Invoice"}
+            {pending ? t("ui.creating") : t("billing.createInvoice")}
           </Button>
         </DialogFooter>
       </DialogContent>

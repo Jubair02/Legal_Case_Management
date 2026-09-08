@@ -11,10 +11,12 @@ import {
   Gavel,
   Home,
   Info,
+  Languages,
   LogOut,
   Menu,
   Receipt,
   Scale,
+  ScrollText,
   Settings,
   Users,
   Wallet,
@@ -36,11 +38,12 @@ import {
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiGet, apiSend } from "@/lib/api-client"
-import { ROLE_LABELS } from "@/lib/constants"
+import { statusLabel, useLanguage } from "@/lib/i18n/language"
 import { NOTIFICATIONS_CHANGED_EVENT } from "@/lib/events"
 import { cn, formatDateTime, initials } from "@/lib/utils"
 import type { NotificationDTO, SessionUser, ViewKey, ViewParams, ViewProps } from "@/lib/types"
 
+import AuditView from "@/components/views/audit-view"
 import DashboardView from "@/components/dashboard/dashboard-view"
 import BillingView from "@/components/views/billing-view"
 import CaseDetailView from "@/components/views/case-detail-view"
@@ -56,116 +59,120 @@ import SettingsView from "@/components/views/settings-view"
 /* --------------------------- Navigation config --------------------------- */
 
 interface NavItem {
-  label: string
+  /** i18n key under `nav.*` — resolved with t() at render time. */
+  labelKey: string
   icon: LucideIcon
   view: ViewKey
   params?: ViewParams
 }
 
 interface NavGroup {
-  label: string
+  labelKey: string
   items: NavItem[]
 }
 
-const DASHBOARD_ITEM: NavItem = { label: "Dashboard", icon: Home, view: "dashboard" }
+const DASHBOARD_ITEM: NavItem = { labelKey: "nav.dashboard", icon: Home, view: "dashboard" }
 
 const NAV_GROUPS: Record<string, NavGroup[]> = {
   ADMIN: [
-    { label: "Overview", items: [DASHBOARD_ITEM] },
+    { labelKey: "nav.overview", items: [DASHBOARD_ITEM] },
     {
-      label: "Case Management",
+      labelKey: "nav.caseManagement",
       items: [
-        { label: "All Cases", icon: FolderKanban, view: "cases" },
-        { label: "Clients", icon: Users, view: "clients" },
-        { label: "Lawyers", icon: Gavel, view: "lawyers" },
-        { label: "Hearings", icon: CalendarDays, view: "hearings" },
-        { label: "Documents", icon: FileText, view: "documents" },
+        { labelKey: "nav.allCases", icon: FolderKanban, view: "cases" },
+        { labelKey: "nav.clients", icon: Users, view: "clients" },
+        { labelKey: "nav.lawyers", icon: Gavel, view: "lawyers" },
+        { labelKey: "nav.hearings", icon: CalendarDays, view: "hearings" },
+        { labelKey: "nav.documents", icon: FileText, view: "documents" },
       ],
     },
     {
-      label: "Office",
+      labelKey: "nav.office",
       items: [
-        { label: "Billing", icon: Receipt, view: "billing" },
-        { label: "Notifications", icon: Bell, view: "notifications" },
+        { labelKey: "nav.billing", icon: Receipt, view: "billing" },
+        { labelKey: "nav.notifications", icon: Bell, view: "notifications" },
       ],
     },
     {
-      label: "System",
+      labelKey: "nav.system",
       items: [
-        { label: "Reports", icon: BarChart3, view: "reports" },
-        { label: "Settings", icon: Settings, view: "settings" },
+        { labelKey: "nav.reports", icon: BarChart3, view: "reports" },
+        { labelKey: "nav.auditLog", icon: ScrollText, view: "audit" },
+        { labelKey: "nav.settings", icon: Settings, view: "settings" },
       ],
     },
   ],
   STAFF: [
-    { label: "Overview", items: [DASHBOARD_ITEM] },
+    { labelKey: "nav.overview", items: [DASHBOARD_ITEM] },
     {
-      label: "Case Management",
+      labelKey: "nav.caseManagement",
       items: [
-        { label: "Cases", icon: FolderKanban, view: "cases" },
-        { label: "Clients", icon: Users, view: "clients" },
-        { label: "Hearings", icon: CalendarDays, view: "hearings" },
-        { label: "Documents", icon: FileText, view: "documents" },
+        { labelKey: "nav.cases", icon: FolderKanban, view: "cases" },
+        { labelKey: "nav.clients", icon: Users, view: "clients" },
+        { labelKey: "nav.hearings", icon: CalendarDays, view: "hearings" },
+        { labelKey: "nav.documents", icon: FileText, view: "documents" },
       ],
     },
-    { label: "Office", items: [{ label: "Notifications", icon: Bell, view: "notifications" }] },
-    { label: "System", items: [{ label: "Settings", icon: Settings, view: "settings" }] },
+    { labelKey: "nav.office", items: [{ labelKey: "nav.notifications", icon: Bell, view: "notifications" }] },
+    { labelKey: "nav.system", items: [{ labelKey: "nav.settings", icon: Settings, view: "settings" }] },
   ],
   LAWYER: [
-    { label: "Overview", items: [DASHBOARD_ITEM] },
+    { labelKey: "nav.overview", items: [DASHBOARD_ITEM] },
     {
-      label: "Case Management",
+      labelKey: "nav.caseManagement",
       items: [
-        { label: "My Cases", icon: FolderKanban, view: "cases" },
-        { label: "Hearings", icon: CalendarDays, view: "hearings" },
-        { label: "Documents", icon: FileText, view: "documents" },
+        { labelKey: "nav.myCases", icon: FolderKanban, view: "cases" },
+        { labelKey: "nav.hearings", icon: CalendarDays, view: "hearings" },
+        { labelKey: "nav.documents", icon: FileText, view: "documents" },
       ],
     },
     {
-      label: "Office",
+      labelKey: "nav.office",
       items: [
-        { label: "My Clients", icon: Users, view: "clients" },
-        { label: "Billing", icon: Receipt, view: "billing", params: { tab: "invoices" } },
-        { label: "Notifications", icon: Bell, view: "notifications" },
+        { labelKey: "nav.myClients", icon: Users, view: "clients" },
+        { labelKey: "nav.billing", icon: Receipt, view: "billing", params: { tab: "invoices" } },
+        { labelKey: "nav.notifications", icon: Bell, view: "notifications" },
       ],
     },
-    { label: "System", items: [{ label: "Settings", icon: Settings, view: "settings" }] },
+    { labelKey: "nav.system", items: [{ labelKey: "nav.settings", icon: Settings, view: "settings" }] },
   ],
   CLIENT: [
-    { label: "Overview", items: [DASHBOARD_ITEM] },
+    { labelKey: "nav.overview", items: [DASHBOARD_ITEM] },
     {
-      label: "Case Management",
+      labelKey: "nav.caseManagement",
       items: [
-        { label: "My Cases", icon: FolderKanban, view: "cases" },
-        { label: "My Documents", icon: FileText, view: "documents" },
+        { labelKey: "nav.myCases", icon: FolderKanban, view: "cases" },
+        { labelKey: "nav.myDocuments", icon: FileText, view: "documents" },
       ],
     },
     {
-      label: "Office",
+      labelKey: "nav.office",
       items: [
-        { label: "Invoices", icon: Receipt, view: "billing", params: { tab: "invoices" } },
-        { label: "Payments", icon: Wallet, view: "billing", params: { tab: "payments" } },
-        { label: "Notifications", icon: Bell, view: "notifications" },
+        { labelKey: "nav.invoices", icon: Receipt, view: "billing", params: { tab: "invoices" } },
+        { labelKey: "nav.payments", icon: Wallet, view: "billing", params: { tab: "payments" } },
+        { labelKey: "nav.notifications", icon: Bell, view: "notifications" },
       ],
     },
-    { label: "System", items: [{ label: "Settings", icon: Settings, view: "settings" }] },
+    { labelKey: "nav.system", items: [{ labelKey: "nav.settings", icon: Settings, view: "settings" }] },
   ],
 }
 
-const FALLBACK_NAV: NavGroup[] = [{ label: "Overview", items: [DASHBOARD_ITEM] }]
+const FALLBACK_NAV: NavGroup[] = [{ labelKey: "nav.overview", items: [DASHBOARD_ITEM] }]
 
+/** ViewKey → nav.* title key (used when no nav item matches, e.g. case-detail). */
 const VIEW_TITLES: Record<ViewKey, string> = {
-  dashboard: "Dashboard",
-  cases: "Cases",
-  "case-detail": "Case File",
-  clients: "Clients",
-  lawyers: "Lawyers",
-  hearings: "Hearings",
-  documents: "Documents",
-  billing: "Billing & Invoices",
-  notifications: "Notifications",
-  reports: "Reports",
-  settings: "Settings",
+  dashboard: "nav.dashboard",
+  cases: "nav.cases",
+  "case-detail": "nav.caseFile",
+  clients: "nav.clients",
+  lawyers: "nav.lawyers",
+  hearings: "nav.hearings",
+  documents: "nav.documents",
+  billing: "nav.billingAndInvoices",
+  notifications: "nav.notifications",
+  reports: "nav.reports",
+  settings: "nav.settings",
+  audit: "nav.auditLog",
 }
 
 function navGroupsFor(role: string): NavGroup[] {
@@ -191,6 +198,7 @@ const VIEW_REGISTRY: Record<ViewKey, ComponentType<ViewProps>> = {
   notifications: NotificationsView,
   reports: ReportsView,
   settings: SettingsView,
+  audit: AuditView,
 }
 
 /* ---------------------------- Notification bell ---------------------------- */
@@ -203,6 +211,7 @@ const NOTIF_TYPE_STYLES: Record<string, { icon: LucideIcon; className: string }>
 }
 
 function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: ViewParams) => void }) {
+  const { t } = useLanguage()
   const [count, setCount] = useState(0)
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<NotificationDTO[]>([])
@@ -235,7 +244,7 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
       // Badge count stays driven by the dedicated unread-count endpoint —
       // the dropdown list only shows the latest 8 items.
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not load notifications.")
+      toast.error(e instanceof Error ? e.message : t("notifications.loadFailed"))
     } finally {
       setLoading(false)
     }
@@ -285,11 +294,11 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
       await apiSend<{ ok: boolean }>("POST", "/api/notifications/read-all")
       setItems((prev) => prev.map((n) => ({ ...n, isRead: true })))
       setCount(0)
-      toast.success("All notifications marked as read.")
+      toast.success(t("notifications.markAllReadToast"))
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not mark notifications as read.")
+      toast.error(e instanceof Error ? e.message : t("notifications.markAllReadFailed"))
     }
-  }, [])
+  }, [t])
   return (
     <DropdownMenu
       open={open}
@@ -299,7 +308,7 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
       }}
     >
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative" aria-label="Notifications">
+        <Button variant="ghost" size="icon" className="relative" aria-label={t("nav.notifications")}>
           <Bell className="h-5 w-5" />
           {count > 0 ? (
             <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">
@@ -310,9 +319,9 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80 p-0">
         <div className="flex items-center justify-between border-b px-4 py-3">
-          <p className="text-sm font-semibold">Notifications</p>
+          <p className="text-sm font-semibold">{t("notifications.title")}</p>
           {count > 0 ? (
-            <Badge className="bg-rose-600 text-white hover:bg-rose-600">{count} new</Badge>
+            <Badge className="bg-rose-600 text-white hover:bg-rose-600">{t("notifications.countNew", { count })}</Badge>
           ) : null}
         </div>
         <div className="max-h-80 overflow-y-auto">
@@ -329,7 +338,7 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
               ))}
             </div>
           ) : items.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-muted-foreground">No notifications</p>
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">{t("notifications.empty")}</p>
           ) : (
             items.map((n) => {
               const style = NOTIF_TYPE_STYLES[n.type] ?? NOTIF_TYPE_STYLES.INFO
@@ -360,7 +369,7 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
         </div>
         <div className="border-t p-2">
           <Button variant="ghost" size="sm" className="w-full" onClick={() => void markAllRead()}>
-            Mark all as read
+            {t("notifications.markAllRead")}
           </Button>
         </div>
       </DropdownMenuContent>
@@ -371,14 +380,15 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
 /* ------------------------------ Sidebar pieces ------------------------------ */
 
 function SidebarBrand() {
+  const { t } = useLanguage()
   return (
     <div className="flex items-center gap-3 px-5 pb-2 pt-5">
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-md shadow-emerald-950/50">
         <Scale className="h-5 w-5" />
       </span>
       <span className="min-w-0">
-        <span className="block text-base font-semibold leading-tight text-white">AinSheba</span>
-        <span className="block truncate text-xs text-emerald-200/60">আইনসেবা · Case Management</span>
+        <span className="block text-base font-semibold leading-tight text-white">{t("common.appName")}</span>
+        <span className="block truncate text-xs text-emerald-200/60">{t("shell.brandSub")}</span>
       </span>
     </div>
   )
@@ -395,18 +405,19 @@ function SidebarNav({
   viewParams: ViewParams
   onNavigate: (view: ViewKey, params?: ViewParams) => void
 }) {
+  const { t } = useLanguage()
   return (
     <nav className="flex-1 overflow-y-auto px-3 pb-4">
       {groups.map((group) => (
-        <div key={group.label}>
-          <p className="px-3 pb-1 pt-4 text-[11px] uppercase tracking-wider text-emerald-200/50">{group.label}</p>
+        <div key={group.labelKey}>
+          <p className="px-3 pb-1 pt-4 text-[11px] uppercase tracking-wider text-emerald-200/50">{t(group.labelKey)}</p>
           <div className="space-y-0.5">
             {group.items.map((item) => {
               const active = isItemActive(item, activeView, viewParams)
               const Icon = item.icon
               return (
                 <button
-                  key={`${item.view}:${item.label}`}
+                  key={`${item.view}:${item.labelKey}`}
                   type="button"
                   onClick={() => onNavigate(item.view, item.params)}
                   className={cn(
@@ -421,7 +432,7 @@ function SidebarNav({
                     />
                   ) : null}
                   <Icon className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{item.label}</span>
+                  <span className="truncate">{t(item.labelKey)}</span>
                 </button>
               )
             })}
@@ -439,6 +450,7 @@ function SidebarUserBlock({
   user: SessionUser
   onLogout: () => void | Promise<void>
 }) {
+  const { t } = useLanguage()
   return (
     <div className="border-t border-emerald-900/60 p-4">
       <div className="flex items-center gap-3">
@@ -449,13 +461,13 @@ function SidebarUserBlock({
         </Avatar>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-white">{user.name}</p>
-          <p className="truncate text-xs text-emerald-200/60">{ROLE_LABELS[user.role] ?? user.role}</p>
+          <p className="truncate text-xs text-emerald-200/60">{statusLabel(user.role, t)}</p>
         </div>
         <button
           type="button"
           onClick={() => void onLogout()}
-          title="Log out"
-          aria-label="Log out"
+          title={t("common.signOut")}
+          aria-label={t("common.signOut")}
           className="rounded-md p-2 text-emerald-200/70 transition-colors hover:bg-white/10 hover:text-white"
         >
           <LogOut className="h-4 w-4" />
@@ -466,12 +478,13 @@ function SidebarUserBlock({
 }
 
 function UserMenu({ user, onLogout }: { user: SessionUser; onLogout: () => void | Promise<void> }) {
+  const { t } = useLanguage()
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label="Account menu"
+          aria-label={t("shell.accountMenu")}
           className="rounded-full outline-none ring-ring/50 transition focus-visible:ring-[3px]"
         >
           <Avatar className="h-8 w-8">
@@ -485,12 +498,12 @@ function UserMenu({ user, onLogout }: { user: SessionUser; onLogout: () => void 
         <DropdownMenuLabel className="font-normal">
           <p className="text-sm font-medium text-foreground">{user.name}</p>
           <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-          <p className="mt-1 text-xs font-medium text-emerald-700">{ROLE_LABELS[user.role] ?? user.role}</p>
+          <p className="mt-1 text-xs font-medium text-emerald-700">{statusLabel(user.role, t)}</p>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => void onLogout()} className="text-rose-600 focus:text-rose-700">
           <LogOut className="h-4 w-4" />
-          Log out
+          {t("common.signOut")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -505,6 +518,7 @@ export interface AppShellProps {
 }
 
 export function AppShell({ user, onLogout }: AppShellProps) {
+  const { lang, setLang, t } = useLanguage()
   const [activeView, setActiveView] = useState<ViewKey>("dashboard")
   const [viewParams, setViewParams] = useState<ViewParams>({})
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -524,9 +538,9 @@ export function AppShell({ user, onLogout }: AppShellProps) {
 
   const pageTitle = useMemo(() => {
     const match = flatItems.find((it) => isItemActive(it, activeView, viewParams))
-    if (match) return match.label
-    return VIEW_TITLES[activeView] ?? "AinSheba"
-  }, [flatItems, activeView, viewParams])
+    if (match) return t(match.labelKey)
+    return t(VIEW_TITLES[activeView] ?? "common.appName")
+  }, [flatItems, activeView, viewParams, t])
 
   const ActiveView = VIEW_REGISTRY[activeView] ?? DashboardView
 
@@ -545,8 +559,20 @@ export function AppShell({ user, onLogout }: AppShellProps) {
           side="left"
           className="w-72 border-emerald-900/60 bg-emerald-950 p-0 text-emerald-50/90 [&>button]:text-emerald-100"
         >
-          <SheetTitle className="sr-only">Navigation</SheetTitle>
-          <SheetDescription className="sr-only">Main navigation for AinSheba</SheetDescription>
+          <SheetTitle className="sr-only">{t("shell.navigation")}</SheetTitle>
+          <SheetDescription className="sr-only">{t("shell.mainNavigation")}</SheetDescription>
+          <div className="px-4 pt-4">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full gap-2 border-emerald-800/80 bg-white/5 text-xs font-medium text-emerald-50 hover:bg-white/10 hover:text-white"
+              aria-label={t("common.language")}
+              onClick={() => setLang(lang === "en" ? "bn" : "en")}
+            >
+              <Languages className="h-4 w-4" />
+              {lang === "en" ? "বাংলা" : "English"}
+            </Button>
+          </div>
           <SidebarBrand />
           <SidebarNav groups={groups} activeView={activeView} viewParams={viewParams} onNavigate={navigate} />
           <SidebarUserBlock user={user} onLogout={onLogout} />
@@ -562,7 +588,7 @@ export function AppShell({ user, onLogout }: AppShellProps) {
               size="icon"
               className="md:hidden"
               onClick={() => setMobileNavOpen(true)}
-              aria-label="Open navigation"
+              aria-label={t("shell.openMenu")}
             >
               <Menu className="h-5 w-5" />
             </Button>
@@ -570,10 +596,20 @@ export function AppShell({ user, onLogout }: AppShellProps) {
               <span className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-600 text-white">
                 <Scale className="h-4 w-4" />
               </span>
-              <span className="text-sm font-semibold">AinSheba</span>
+              <span className="text-sm font-semibold">{t("common.appName")}</span>
             </div>
             <h2 className="hidden truncate text-sm font-semibold tracking-tight md:block md:text-base">{pageTitle}</h2>
             <div className="ml-auto flex items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 px-2.5 text-xs font-medium"
+                aria-label={t("common.language")}
+                onClick={() => setLang(lang === "en" ? "bn" : "en")}
+              >
+                <Languages className="h-4 w-4" />
+                {lang === "en" ? "বাংলা" : "English"}
+              </Button>
               <NotificationBell navigate={navigate} />
               <UserMenu user={user} onLogout={onLogout} />
             </div>
@@ -585,9 +621,9 @@ export function AppShell({ user, onLogout }: AppShellProps) {
             <ActiveView user={user} navigate={navigate} params={viewParams} />
             <footer className="mt-auto pt-6 text-center">
               <p className="text-xs text-muted-foreground">
-                © 2026 AinSheba · আইনসেবা — Legal Case Management for Bangladesh
+                © 2026 {t("common.appName")} · আইনসেবা — {t("shell.footerTagline")}
               </p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground/70">Built for chambers, advocates & clients</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground/70">{t("shell.footerBuiltFor")}</p>
             </footer>
           </div>
         </main>

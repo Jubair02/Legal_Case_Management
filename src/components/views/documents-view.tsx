@@ -46,8 +46,32 @@ import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { apiSend, apiUpload } from "@/lib/api-client"
 import { DOCUMENT_CATEGORIES, DOCUMENT_TYPES, MAX_FILE_SIZE, UPLOAD_ACCEPT } from "@/lib/constants"
+import { useLanguage, type TranslateFn } from "@/lib/i18n/language"
 import type { CaseDetailDTO, CaseListDTO, DocumentDTO, ViewProps } from "@/lib/types"
 import { cn, formatDate, formatFileSize } from "@/lib/utils"
+
+/**
+ * Builds a derived enum dictionary key: enumTKey("documents.type", "Court Order")
+ * → "documents.typeCourtOrder". Non-alphanumeric runs split words.
+ */
+function enumTKey(prefix: string, value: string): string {
+  return (
+    prefix +
+    value
+      .split(/[^a-zA-Z0-9]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join("")
+  )
+}
+
+/** Translates a domain enum value (document types/categories, case types), falling back to the raw value. */
+function enumLabel(prefix: string, value: string | null | undefined, t: TranslateFn): string {
+  if (!value) return "—"
+  const key = enumTKey(prefix, value)
+  const translated = t(key)
+  return translated === key ? value : translated
+}
 
 /* ------------------------------- Upload dialog ------------------------------- */
 
@@ -71,6 +95,7 @@ function UploadDocumentDialog({
   const [share, setShare] = useState(false)
   const [pending, setPending] = useState(false)
   const lastFileNameRef = useRef("")
+  const { t } = useLanguage()
 
   useEffect(() => {
     if (!open) return
@@ -96,11 +121,11 @@ function UploadDocumentDialog({
 
   const submit = async () => {
     if (!file) {
-      toast.error("Choose a file to upload.")
+      toast.error(t("documents.errChooseFile"))
       return
     }
     if (file.size > MAX_FILE_SIZE) {
-      toast.error("File is larger than the 10 MB limit.")
+      toast.error(t("documents.errTooLarge"))
       return
     }
     const fd = new FormData()
@@ -112,11 +137,11 @@ function UploadDocumentDialog({
     try {
       setPending(true)
       await apiUpload<DocumentDTO>(`/api/cases/${caseId}/documents`, fd)
-      toast.success("Document uploaded.")
+      toast.success(t("documents.toastUploaded"))
       onOpenChange(false)
       onUploaded()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed. Please try again.")
+      toast.error(e instanceof Error ? e.message : t("documents.errUpload"))
     } finally {
       setPending(false)
     }
@@ -126,16 +151,14 @@ function UploadDocumentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Upload document</DialogTitle>
-          <DialogDescription>
-            Add a file to the {caseNumber} case file. PDF, Word, image or text up to 10 MB.
-          </DialogDescription>
+          <DialogTitle>{t("documents.uploadDocument")}</DialogTitle>
+          <DialogDescription>{t("documents.uploadDesc", { caseNumber })}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="doc-file">
-              File <span className="text-rose-500">*</span>
+              {t("documents.file")} <span className="text-rose-500">*</span>
             </Label>
             <Input
               id="doc-file"
@@ -151,43 +174,43 @@ function UploadDocumentDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="doc-name">Document name</Label>
+            <Label htmlFor="doc-name">{t("documents.documentName")}</Label>
             <Input
               id="doc-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Vakalatnama — CS-123/2026"
+              placeholder={t("documents.namePh")}
             />
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="doc-type">Type</Label>
+              <Label htmlFor="doc-type">{t("common.type")}</Label>
               <Select value={type} onValueChange={setType}>
                 <SelectTrigger id="doc-type" className="w-full">
-                  <SelectValue placeholder="Not specified" />
+                  <SelectValue placeholder={t("ui.notSpecified")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">Not specified</SelectItem>
-                  {DOCUMENT_TYPES.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t}
+                  <SelectItem value="__none__">{t("ui.notSpecified")}</SelectItem>
+                  {DOCUMENT_TYPES.map((dt) => (
+                    <SelectItem key={dt} value={dt}>
+                      {enumLabel("documents.type", dt, t)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="doc-category">Category</Label>
+              <Label htmlFor="doc-category">{t("documents.category")}</Label>
               <Select value={category} onValueChange={setCategory}>
                 <SelectTrigger id="doc-category" className="w-full">
-                  <SelectValue placeholder="Not specified" />
+                  <SelectValue placeholder={t("ui.notSpecified")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">Not specified</SelectItem>
-                  {DOCUMENT_CATEGORIES.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
+                  <SelectItem value="__none__">{t("ui.notSpecified")}</SelectItem>
+                  {DOCUMENT_CATEGORIES.map((dc) => (
+                    <SelectItem key={dc} value={dc}>
+                      {enumLabel("documents.cat", dc, t)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -197,8 +220,8 @@ function UploadDocumentDialog({
 
           <div className="flex items-center justify-between gap-3 rounded-lg border border-stone-200 bg-stone-50 p-3">
             <div className="min-w-0">
-              <Label htmlFor="doc-share">Share with client portal</Label>
-              <p className="text-xs text-muted-foreground">The client sees it after their next sign-in</p>
+              <Label htmlFor="doc-share">{t("documents.shareWithClient")}</Label>
+              <p className="text-xs text-muted-foreground">{t("documents.shareHint")}</p>
             </div>
             <Switch id="doc-share" checked={share} onCheckedChange={setShare} />
           </div>
@@ -206,10 +229,10 @@ function UploadDocumentDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={submit} disabled={pending}>
-            <Upload className="h-4 w-4" /> {pending ? "Uploading…" : "Upload"}
+            <Upload className="h-4 w-4" /> {pending ? t("ui.uploading") : t("common.upload")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -220,6 +243,7 @@ function UploadDocumentDialog({
 /* ---------------------------------- View ---------------------------------- */
 
 export default function DocumentsView({ user }: ViewProps) {
+  const { t } = useLanguage()
   const isClient = user.role === "CLIENT"
   const canWrite = user.role === "ADMIN" || user.role === "STAFF" || user.role === "LAWYER"
 
@@ -262,10 +286,10 @@ export default function DocumentsView({ user }: ViewProps) {
     try {
       setSharingId(doc.id)
       await apiSend<DocumentDTO>("PATCH", `/api/documents/${doc.id}`, { sharedWithClient: !doc.sharedWithClient })
-      toast.success(doc.sharedWithClient ? "Sharing turned off." : "Document shared with the client portal.")
+      toast.success(doc.sharedWithClient ? t("caseDetail.toastSharingOff") : t("caseDetail.toastShared"))
       refetchDetail()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not update sharing.")
+      toast.error(e instanceof Error ? e.message : t("caseDetail.errSharing"))
     } finally {
       setSharingId(null)
     }
@@ -274,22 +298,22 @@ export default function DocumentsView({ user }: ViewProps) {
   const handleDelete = async () => {
     if (!deleteTarget) return
     await apiSend("DELETE", `/api/documents/${deleteTarget.id}`)
-    toast.success(`${deleteTarget.documentName} deleted.`)
+    toast.success(t("documents.toastDeletedFor", { name: deleteTarget.documentName }))
     refetchDetail()
   }
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Documents"
-        description={isClient ? "Vakalatnama, orders & evidence shared with you." : "Vakalatnama, orders & evidence vault — organised per case."}
+        title={t("documents.pageTitle")}
+        description={isClient ? t("documents.pageSubtitleClient") : t("documents.pageSubtitle")}
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Case picker */}
         <SectionCard
-          title={isClient ? "My Cases" : "Select a case"}
-          description={isClient ? "Open a case to view its shared documents." : "Documents are filed per case."}
+          title={isClient ? t("documents.myCases") : t("documents.selectCase")}
+          description={isClient ? t("documents.pickerDescClient") : t("documents.pickerDesc")}
           className="h-fit lg:col-span-1"
         >
           <div className="space-y-2">
@@ -298,8 +322,8 @@ export default function DocumentsView({ user }: ViewProps) {
               <Input
                 value={caseSearch}
                 onChange={(e) => setCaseSearch(e.target.value)}
-                placeholder="Search cases…"
-                aria-label="Search cases"
+                placeholder={t("documents.searchPh")}
+                aria-label={t("cases.searchAria")}
                 className="pl-8"
               />
             </div>
@@ -313,14 +337,18 @@ export default function DocumentsView({ user }: ViewProps) {
               ) : casesError && cases.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 py-6 text-center">
                   <AlertTriangle className="h-5 w-5 text-amber-500" />
-                  <p className="text-xs text-muted-foreground">Could not load cases.</p>
+                  <p className="text-xs text-muted-foreground">{t("documents.errLoadCases")}</p>
                   <Button variant="outline" size="sm" onClick={refetchCases}>
-                    Try again
+                    {t("common.retry")}
                   </Button>
                 </div>
               ) : filteredCases.length === 0 ? (
                 <p className="py-6 text-center text-xs text-muted-foreground">
-                  {cases.length === 0 ? (isClient ? "No cases yet." : "No cases yet — register a case first.") : "No cases match your search."}
+                  {cases.length === 0
+                    ? isClient
+                      ? t("documents.noCasesClient")
+                      : t("documents.noCases")
+                    : t("ui.noCaseMatch")}
                 </p>
               ) : (
                 filteredCases.map((c) => {
@@ -340,7 +368,7 @@ export default function DocumentsView({ user }: ViewProps) {
                       <p className={cn("text-sm font-semibold", selected ? "text-emerald-900" : "text-foreground")}>
                         {c.caseNumber}
                       </p>
-                      <p className="truncate text-xs text-muted-foreground">{c.type}</p>
+                      <p className="truncate text-xs text-muted-foreground">{enumLabel("cases.type", c.type, t)}</p>
                     </button>
                   )
                 })
@@ -358,24 +386,30 @@ export default function DocumentsView({ user }: ViewProps) {
               </span>
               <div className="min-w-0">
                 <p className="truncate text-base font-semibold tracking-tight">
-                  {detail ? `${detail.caseNumber} — Documents` : selectedCase ? `${selectedCase.caseNumber} — Documents` : "Documents"}
+                  {detail
+                    ? t("documents.caseDocumentsTitle", { caseNumber: detail.caseNumber })
+                    : selectedCase
+                      ? t("documents.caseDocumentsTitle", { caseNumber: selectedCase.caseNumber })
+                      : t("documents.pageTitle")}
                 </p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {detail?.title ?? selectedCase?.title ?? "—"} · {documents.length} document
-                  {documents.length === 1 ? "" : "s"}
+                  {t(documents.length === 1 ? "documents.docCountOne" : "documents.docCountOther", {
+                    title: detail?.title ?? selectedCase?.title ?? "—",
+                    count: documents.length,
+                  })}
                 </p>
               </div>
             </div>
             {canWrite && selectedId ? (
               <Button onClick={() => setUploadOpen(true)} className="shrink-0">
-                <Upload className="h-4 w-4" /> Upload Document
+                <Upload className="h-4 w-4" /> {t("documents.uploadDocument")}
               </Button>
             ) : null}
           </div>
 
           {isClient ? (
             <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-              You can see documents shared by your chamber.
+              {t("documents.clientBanner")}
             </p>
           ) : null}
 
@@ -384,25 +418,25 @@ export default function DocumentsView({ user }: ViewProps) {
           ) : detailError && !detail ? (
             <EmptyState
               icon={AlertTriangle}
-              title="Could not load documents"
+              title={t("documents.errLoad")}
               description={detailError}
               action={
                 <Button variant="outline" size="sm" onClick={refetchDetail}>
-                  Try again
+                  {t("common.retry")}
                 </Button>
               }
             />
           ) : !selectedId ? (
-            <EmptyState icon={FolderKanban} title="No case selected" description="Pick a case on the left to view its documents." />
+            <EmptyState icon={FolderKanban} title={t("ui.noCaseSelected")} description={t("documents.noCaseSelectedDesc")} />
           ) : documents.length === 0 ? (
             <EmptyState
               icon={FileText}
-              title={isClient ? "No documents shared yet" : "No documents yet — upload the Vakalatnama to get started."}
-              description={isClient ? "Your chamber has not shared any documents for this case." : "PDF, Word, image or text files up to 10 MB."}
+              title={isClient ? t("documents.emptyClientTitle") : t("documents.emptyTitle")}
+              description={isClient ? t("documents.emptyClientDesc") : t("documents.emptyDesc")}
               action={
                 canWrite ? (
                   <Button size="sm" onClick={() => setUploadOpen(true)}>
-                    <Upload className="h-4 w-4" /> Upload Document
+                    <Upload className="h-4 w-4" /> {t("documents.uploadDocument")}
                   </Button>
                 ) : undefined
               }
@@ -413,13 +447,13 @@ export default function DocumentsView({ user }: ViewProps) {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-stone-50/60">
-                      <TableHead>Name</TableHead>
-                      <TableHead className="hidden md:table-cell">Type</TableHead>
-                      <TableHead className="hidden lg:table-cell">Category</TableHead>
-                      <TableHead className="hidden sm:table-cell">Size</TableHead>
-                      <TableHead className="hidden lg:table-cell">Uploaded By</TableHead>
-                      <TableHead className="hidden sm:table-cell">Date</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead>{t("common.name")}</TableHead>
+                      <TableHead className="hidden md:table-cell">{t("common.type")}</TableHead>
+                      <TableHead className="hidden lg:table-cell">{t("documents.category")}</TableHead>
+                      <TableHead className="hidden sm:table-cell">{t("documents.colSize")}</TableHead>
+                      <TableHead className="hidden lg:table-cell">{t("documents.colUploadedBy")}</TableHead>
+                      <TableHead className="hidden sm:table-cell">{t("common.date")}</TableHead>
+                      <TableHead className="text-right">{t("common.actions")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -433,7 +467,7 @@ export default function DocumentsView({ user }: ViewProps) {
                             </span>
                             {doc.sharedWithClient ? (
                               <Badge variant="outline" className="shrink-0 gap-1 border border-emerald-200 bg-emerald-50 text-emerald-700">
-                                <Users className="h-3 w-3" /> Shared
+                                <Users className="h-3 w-3" /> {t("documents.sharedBadge")}
                               </Badge>
                             ) : null}
                           </div>
@@ -442,10 +476,10 @@ export default function DocumentsView({ user }: ViewProps) {
                           </p>
                         </TableCell>
                         <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
-                          {doc.documentType ?? "—"}
+                          {doc.documentType ? enumLabel("documents.type", doc.documentType, t) : "—"}
                         </TableCell>
                         <TableCell className="hidden text-sm text-muted-foreground lg:table-cell">
-                          {doc.category ?? "—"}
+                          {doc.category ? enumLabel("documents.cat", doc.category, t) : "—"}
                         </TableCell>
                         <TableCell className="hidden text-sm text-muted-foreground sm:table-cell">
                           {formatFileSize(doc.fileSize)}
@@ -459,7 +493,11 @@ export default function DocumentsView({ user }: ViewProps) {
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-0.5">
                             <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                              <a href={`/api/files/${doc.id}?download=1`} title="Download" aria-label={`Download ${doc.documentName}`}>
+                              <a
+                                href={`/api/files/${doc.id}?download=1`}
+                                title={t("common.download")}
+                                aria-label={t("documents.downloadAria", { name: doc.documentName })}
+                              >
                                 <Download className="h-4 w-4" />
                               </a>
                             </Button>
@@ -468,8 +506,8 @@ export default function DocumentsView({ user }: ViewProps) {
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8"
-                                title={doc.sharedWithClient ? "Stop sharing with client" : "Share with client portal"}
-                                aria-label={doc.sharedWithClient ? "Stop sharing with client" : "Share with client portal"}
+                                title={doc.sharedWithClient ? t("documents.stopSharing") : t("documents.shareWithClient")}
+                                aria-label={doc.sharedWithClient ? t("documents.stopSharing") : t("documents.shareWithClient")}
                                 disabled={sharingId === doc.id}
                                 onClick={() => toggleShare(doc)}
                               >
@@ -481,8 +519,8 @@ export default function DocumentsView({ user }: ViewProps) {
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-                                title="Delete document"
-                                aria-label={`Delete ${doc.documentName}`}
+                                title={t("documents.deleteTitle")}
+                                aria-label={t("documents.deleteAria", { name: doc.documentName })}
                                 onClick={() => setDeleteTarget(doc)}
                               >
                                 <Trash2 className="h-4 w-4" />
@@ -503,7 +541,7 @@ export default function DocumentsView({ user }: ViewProps) {
       {selectedId ? (
         <UploadDocumentDialog
           caseId={selectedId}
-          caseNumber={detail?.caseNumber ?? selectedCase?.caseNumber ?? "selected"}
+          caseNumber={detail?.caseNumber ?? selectedCase?.caseNumber ?? t("ui.caseFallbackSelected")}
           open={uploadOpen}
           onOpenChange={setUploadOpen}
           onUploaded={refetchDetail}
@@ -515,9 +553,11 @@ export default function DocumentsView({ user }: ViewProps) {
         onOpenChange={(open) => {
           if (!open) setDeleteTarget(null)
         }}
-        title="Delete this document?"
-        description={`${deleteTarget?.documentName ?? "This file"} will be removed from the case file permanently.`}
-        confirmLabel="Delete document"
+        title={t("documents.deleteConfirmTitle")}
+        description={t("documents.deleteConfirmDesc", {
+          name: deleteTarget?.documentName ?? t("documents.file"),
+        })}
+        confirmLabel={t("documents.deleteConfirmBtn")}
         destructive
         onConfirm={handleDelete}
       />

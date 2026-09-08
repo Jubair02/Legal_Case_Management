@@ -2,6 +2,7 @@ import { unlinkSync } from "fs"
 import { db } from "@/lib/db"
 import { ApiError, handle, readJson, requireAuth } from "@/lib/api-helpers"
 import { assertCaseWriteAccess, isStaffOrAdmin } from "@/lib/permissions"
+import { audit } from "@/lib/audit"
 
 function documentDTO(d: {
   id: string
@@ -91,6 +92,9 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
         // best-effort file removal
       }
     }
+    await audit(user, "DOCUMENT_DELETE", "Document", id, doc.documentName,
+      `Deleted document ${doc.documentName}`)
+
     return Response.json({ data: { ok: true } })
   })
 }

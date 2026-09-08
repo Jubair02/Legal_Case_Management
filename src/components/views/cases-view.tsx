@@ -13,12 +13,11 @@ import { apiGet, apiSend } from "@/lib/api-client"
 import {
   CASE_PRIORITIES,
   CASE_STATUSES,
-  CASE_STATUS_LABELS,
   CASE_TYPES,
   COURTS,
   DISTRICTS,
-  PRIORITY_LABELS,
 } from "@/lib/constants"
+import { statusLabel, useLanguage, type TranslateFn } from "@/lib/i18n/language"
 import {
   caseStatusStyles,
   cn,
@@ -60,15 +59,56 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 
 const VIEW_TABS = [
-  { key: "all", label: "All" },
-  { key: "active", label: "Active" },
-  { key: "closed", label: "Closed" },
+  { key: "all", labelKey: "common.all" },
+  { key: "active", labelKey: "status.active" },
+  { key: "closed", labelKey: "status.closed" },
 ] as const
 
 type ViewTab = (typeof VIEW_TABS)[number]["key"]
 
 /** Sentinel for optional Radix Select values (empty string is not allowed). */
 const NONE = "__none__"
+
+/**
+ * Builds a derived enum dictionary key: enumTKey("cases.type", "Civil Case")
+ * → "cases.typeCivilCase". Non-alphanumeric runs split words.
+ */
+function enumTKey(prefix: string, value: string): string {
+  return (
+    prefix +
+    value
+      .split(/[^a-zA-Z0-9]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join("")
+  )
+}
+
+/** Translates a domain enum value (case type, court, district…), falling back to the raw value. */
+function enumLabel(prefix: string, value: string | null | undefined, t: TranslateFn): string {
+  if (!value) return "—"
+  const key = enumTKey(prefix, value)
+  const translated = t(key)
+  return translated === key ? value : translated
+}
+
+/** Translates the relative-day words emitted by formatRelativeDay (dates pass through). */
+function relDay(rel: string, t: TranslateFn): string {
+  if (rel === "Today") return t("common.today")
+  if (rel === "Tomorrow") return t("common.tomorrow")
+  if (rel === "Yesterday") return t("common.yesterday")
+  return rel
+}
+
+/** Re-labels a StatusStyle map with translated status labels (styles untouched). */
+function translatedStyles(
+  map: Record<string, { label: string; className: string }>,
+  t: TranslateFn
+): Record<string, { label: string; className: string }> {
+  return Object.fromEntries(
+    Object.entries(map).map(([value, style]) => [value, { ...style, label: statusLabel(value, t) }])
+  )
+}
 
 /* ------------------------------------------------------------------ */
 /*                        Case create / edit dialog                    */
@@ -84,6 +124,7 @@ export interface CaseFormDialogProps {
 }
 
 export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole }: CaseFormDialogProps) {
+  const { t } = useLanguage()
   const [clients, setClients] = useState<ClientDTO[]>([])
   const [lawyers, setLawyers] = useState<LawyerDTO[]>([])
   const [optionsLoading, setOptionsLoading] = useState(false)
@@ -142,7 +183,7 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
         setLawyers(Array.isArray(lws) ? lws : [])
       })
       .catch((e: unknown) => {
-        toast.error(e instanceof Error ? e.message : "Could not load clients and lawyers.")
+        toast.error(e instanceof Error ? e.message : t("cases.errLoadOptions"))
       })
       .finally(() => {
         if (active) setOptionsLoading(false)
@@ -155,27 +196,27 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
   const handleSubmit = async () => {
     // Client-side validation
     if (!isEditing && !caseNumber.trim()) {
-      toast.error("Case number is required.")
+      toast.error(t("cases.errCaseNumberRequired"))
       return
     }
     if (!title.trim()) {
-      toast.error("Case title is required.")
+      toast.error(t("cases.errCaseTitleRequired"))
       return
     }
     if (!type) {
-      toast.error("Please select a case type.")
+      toast.error(t("cases.errSelectType"))
       return
     }
     if (!clientId) {
-      toast.error("Please select a client.")
+      toast.error(t("cases.errSelectClient"))
       return
     }
     if (!court) {
-      toast.error("Please select a court.")
+      toast.error(t("cases.errSelectCourt"))
       return
     }
     if (closing && !resolutionSummary.trim()) {
-      toast.error("Resolution summary is required to resolve or close a case.")
+      toast.error(t("cases.errResolutionRequired"))
       return
     }
 
@@ -230,15 +271,15 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
       setPending(true)
       if (prev) {
         await apiSend("PATCH", `/api/cases/${prev.id}`, payload)
-        toast.success("Case updated")
+        toast.success(t("cases.toastUpdated"))
       } else {
         await apiSend("POST", "/api/cases", payload)
-        toast.success("Case registered")
+        toast.success(t("cases.toastRegistered"))
       }
       onSaved()
       onOpenChange(false)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not save the case.")
+      toast.error(e instanceof Error ? e.message : t("cases.errSave"))
     } finally {
       setPending(false)
     }
@@ -248,50 +289,48 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{isEditing ? "Edit Case" : "Register New Case"}</DialogTitle>
+          <DialogTitle>{isEditing ? t("cases.editCase") : t("cases.registerNewCase")}</DialogTitle>
           <DialogDescription>
-            {isEditing
-              ? "Update the case file details below."
-              : "Fill in the details to register a new case file."}
+            {isEditing ? t("cases.editCaseDesc") : t("cases.newCaseDesc")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="case-number">Case Number</Label>
+            <Label htmlFor="case-number">{t("cases.caseNumber")}</Label>
             <Input
               id="case-number"
               value={caseNumber}
               onChange={(e) => setCaseNumber(e.target.value)}
-              placeholder="e.g. CS-124/2026"
+              placeholder={t("cases.caseNumberPh")}
               disabled={isEditing}
               className="font-mono"
             />
           </div>
           <div className="space-y-2">
             <Label htmlFor="case-title">
-              Case Title <span className="text-rose-600">*</span>
+              {t("cases.caseTitle")} <span className="text-rose-600">*</span>
             </Label>
             <Input
               id="case-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Rahman vs Karim — land dispute"
+              placeholder={t("cases.caseTitlePh")}
             />
           </div>
 
           <div className="space-y-2">
             <Label>
-              Case Type <span className="text-rose-600">*</span>
+              {t("cases.caseType")} <span className="text-rose-600">*</span>
             </Label>
             <Select value={type || undefined} onValueChange={setType}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select type" />
+                <SelectValue placeholder={t("ui.selectType")} />
               </SelectTrigger>
               <SelectContent>
-                {CASE_TYPES.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {t}
+                {CASE_TYPES.map((ct) => (
+                  <SelectItem key={ct} value={ct}>
+                    {enumLabel("cases.type", ct, t)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -300,7 +339,7 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
 
           <div className="space-y-2">
             <Label>
-              Client <span className="text-rose-600">*</span>
+              {t("cases.client")} <span className="text-rose-600">*</span>
             </Label>
             <Select
               value={clientId || undefined}
@@ -308,7 +347,7 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
               disabled={isLawyer}
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder={optionsLoading ? "Loading clients…" : "Select client"} />
+                <SelectValue placeholder={optionsLoading ? t("ui.loadingClients") : t("ui.selectClient")} />
               </SelectTrigger>
               <SelectContent>
                 {clients.map((c) => (
@@ -321,17 +360,17 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
           </div>
 
           <div className="space-y-2">
-            <Label>Assigned Lawyer</Label>
+            <Label>{t("cases.assignedLawyer")}</Label>
             <Select
               value={lawyerId || NONE}
               onValueChange={(v) => setLawyerId(v === NONE ? "" : v)}
               disabled={isLawyer}
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder={optionsLoading ? "Loading lawyers…" : "Unassigned"} />
+                <SelectValue placeholder={optionsLoading ? t("ui.loadingLawyers") : t("cases.unassigned")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NONE}>Unassigned</SelectItem>
+                <SelectItem value={NONE}>{t("cases.unassigned")}</SelectItem>
                 {lawyers.map((l) => (
                   <SelectItem key={l.id} value={l.id}>
                     {l.name}
@@ -343,16 +382,16 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
 
           <div className="space-y-2">
             <Label>
-              Court <span className="text-rose-600">*</span>
+              {t("cases.court")} <span className="text-rose-600">*</span>
             </Label>
             <Select value={court || undefined} onValueChange={setCourt}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select court" />
+                <SelectValue placeholder={t("cases.selectCourt")} />
               </SelectTrigger>
               <SelectContent>
                 {COURTS.map((ct) => (
                   <SelectItem key={ct} value={ct}>
-                    {ct}
+                    {enumLabel("cases.court", ct, t)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -360,16 +399,16 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
           </div>
 
           <div className="space-y-2">
-            <Label>District</Label>
+            <Label>{t("cases.district")}</Label>
             <Select value={district || NONE} onValueChange={(v) => setDistrict(v === NONE ? "" : v)}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select district" />
+                <SelectValue placeholder={t("cases.selectDistrict")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={NONE}>Not specified</SelectItem>
+                <SelectItem value={NONE}>{t("ui.notSpecified")}</SelectItem>
                 {DISTRICTS.map((d) => (
                   <SelectItem key={d} value={d}>
-                    {d}
+                    {enumLabel("cases.district", d, t)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -377,7 +416,7 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="filing-date">Filing Date</Label>
+            <Label htmlFor="filing-date">{t("cases.filingDate")}</Label>
             <Input
               id="filing-date"
               type="date"
@@ -387,7 +426,7 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
           </div>
 
           <div className="space-y-2">
-            <Label>Status</Label>
+            <Label>{t("common.status")}</Label>
             <Select value={status} onValueChange={setStatus}>
               <SelectTrigger className="w-full">
                 <SelectValue />
@@ -395,7 +434,7 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
               <SelectContent>
                 {statusOptions.map((s) => (
                   <SelectItem key={s} value={s}>
-                    {CASE_STATUS_LABELS[s] ?? s}
+                    {statusLabel(s, t)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -403,7 +442,7 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
           </div>
 
           <div className="space-y-2">
-            <Label>Priority</Label>
+            <Label>{t("cases.priority")}</Label>
             <Select value={priority} onValueChange={setPriority}>
               <SelectTrigger className="w-full">
                 <SelectValue />
@@ -411,7 +450,7 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
               <SelectContent>
                 {CASE_PRIORITIES.map((p) => (
                   <SelectItem key={p} value={p}>
-                    {PRIORITY_LABELS[p] ?? p}
+                    {statusLabel(p, t)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -419,22 +458,22 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="opposite-party">Opposite Party</Label>
+            <Label htmlFor="opposite-party">{t("cases.oppositeParty")}</Label>
             <Input
               id="opposite-party"
               value={oppositeParty}
               onChange={(e) => setOppositeParty(e.target.value)}
-              placeholder="Name of the opposing party"
+              placeholder={t("cases.oppositePartyPh")}
             />
           </div>
 
           <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="case-description">Description</Label>
+            <Label htmlFor="case-description">{t("common.description")}</Label>
             <Textarea
               id="case-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Brief summary of the matter…"
+              placeholder={t("cases.descriptionPh")}
               rows={3}
             />
           </div>
@@ -443,27 +482,25 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
             <>
               <div className="space-y-2 sm:col-span-2">
                 <Label htmlFor="resolution-summary">
-                  Resolution Summary <span className="text-rose-600">*</span>
+                  {t("cases.resolutionSummary")} <span className="text-rose-600">*</span>
                 </Label>
                 <Textarea
                   id="resolution-summary"
                   value={resolutionSummary}
                   onChange={(e) => setResolutionSummary(e.target.value)}
-                  placeholder="How was the case resolved?"
+                  placeholder={t("cases.resolutionPh")}
                   rows={3}
                   required
                 />
-                <p className="text-xs text-muted-foreground">
-                  Example: Case resolved through mutual settlement.
-                </p>
+                <p className="text-xs text-muted-foreground">{t("cases.resolutionHint")}</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="case-outcome">Outcome</Label>
+                <Label htmlFor="case-outcome">{t("cases.outcome")}</Label>
                 <Input
                   id="case-outcome"
                   value={outcome}
                   onChange={(e) => setOutcome(e.target.value)}
-                  placeholder="e.g. Won, Settled, Dismissed"
+                  placeholder={t("cases.outcomePh")}
                 />
               </div>
             </>
@@ -472,11 +509,11 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={() => void handleSubmit()} disabled={pending}>
             {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {isEditing ? "Save Changes" : "Register Case"}
+            {isEditing ? t("ui.saveChanges") : t("cases.registerCase")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -489,6 +526,7 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
 /* ------------------------------------------------------------------ */
 
 export default function CasesView({ user, navigate }: ViewProps) {
+  const { t } = useLanguage()
   const [view, setView] = useState<ViewTab>("all")
   const [status, setStatus] = useState("")
   const [type, setType] = useState("")
@@ -531,8 +569,8 @@ export default function CasesView({ user, navigate }: ViewProps) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Case Management"
-        description="Register, track and resolve cases across Bangladesh courts."
+        title={t("cases.pageTitle")}
+        description={t("cases.pageSubtitle")}
       >
         <div className="flex items-center rounded-lg border border-stone-200/80 bg-white p-0.5">
           {VIEW_TABS.map((tab) => (
@@ -543,13 +581,13 @@ export default function CasesView({ user, navigate }: ViewProps) {
               className={cn("h-7 border-0 px-3", view !== tab.key && "bg-transparent shadow-none")}
               onClick={() => setView(tab.key)}
             >
-              {tab.label}
+              {t(tab.labelKey)}
             </Button>
           ))}
         </div>
         {canCreate ? (
           <Button onClick={() => setFormOpen(true)}>
-            <Plus className="h-4 w-4" /> New Case
+            <Plus className="h-4 w-4" /> {t("cases.newCase")}
           </Button>
         ) : null}
       </PageHeader>
@@ -561,53 +599,53 @@ export default function CasesView({ user, navigate }: ViewProps) {
           <Input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search case no, title, opposite party…"
-            aria-label="Search cases"
+            placeholder={t("cases.searchPh")}
+            aria-label={t("cases.searchAria")}
             className="pl-8"
           />
         </div>
         <Select value={status || "all"} onValueChange={(v) => setStatus(v === "all" ? "" : v)}>
           <SelectTrigger className="w-[10.5rem]">
-            <SelectValue placeholder="All statuses" />
+            <SelectValue placeholder={t("ui.allStatuses")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All statuses</SelectItem>
-            {Object.entries(CASE_STATUS_LABELS).map(([key, label]) => (
-              <SelectItem key={key} value={key}>
-                {label}
+            <SelectItem value="all">{t("ui.allStatuses")}</SelectItem>
+            {CASE_STATUSES.map((s) => (
+              <SelectItem key={s} value={s}>
+                {statusLabel(s, t)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Select value={type || "all"} onValueChange={(v) => setType(v === "all" ? "" : v)}>
           <SelectTrigger className="w-[11.5rem]">
-            <SelectValue placeholder="All types" />
+            <SelectValue placeholder={t("ui.allTypes")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All types</SelectItem>
-            {CASE_TYPES.map((t) => (
-              <SelectItem key={t} value={t}>
-                {t}
+            <SelectItem value="all">{t("ui.allTypes")}</SelectItem>
+            {CASE_TYPES.map((ct) => (
+              <SelectItem key={ct} value={ct}>
+                {enumLabel("cases.type", ct, t)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         <Select value={priority || "all"} onValueChange={(v) => setPriority(v === "all" ? "" : v)}>
           <SelectTrigger className="w-[9.5rem]">
-            <SelectValue placeholder="Any priority" />
+            <SelectValue placeholder={t("cases.anyPriority")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Any priority</SelectItem>
+            <SelectItem value="all">{t("cases.anyPriority")}</SelectItem>
             {CASE_PRIORITIES.map((p) => (
               <SelectItem key={p} value={p}>
-                {PRIORITY_LABELS[p] ?? p}
+                {statusLabel(p, t)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         {hasFilters ? (
           <Button variant="ghost" size="sm" onClick={clearFilters}>
-            <X className="h-4 w-4" /> Clear
+            <X className="h-4 w-4" /> {t("cases.clearFilters")}
           </Button>
         ) : null}
       </div>
@@ -615,17 +653,17 @@ export default function CasesView({ user, navigate }: ViewProps) {
       {loadingFirst ? (
         <LoadingBlock rows={6} />
       ) : error && !data ? (
-        <EmptyState icon={AlertTriangle} title="Could not load cases" description={error} />
+        <EmptyState icon={AlertTriangle} title={t("cases.errLoad")} description={error} />
       ) : (
         <Card className="border-stone-200/80">
           <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">Case Files</CardTitle>
+            <CardTitle className="text-base font-semibold tracking-tight">{t("cases.caseFiles")}</CardTitle>
             <CardDescription>
-              {view === "all" ? "All cases" : view === "active" ? "Active, pending & on hold cases" : "Resolved & closed cases"}
+              {view === "all" ? t("cases.filterAllDesc") : view === "active" ? t("cases.filterActiveDesc") : t("cases.filterClosedDesc")}
             </CardDescription>
             <CardAction>
               <Badge variant="outline" className="border-stone-200 bg-stone-50 text-stone-600">
-                {rows.length} {rows.length === 1 ? "case" : "cases"}
+                {t(rows.length === 1 ? "cases.caseCountOne" : "cases.caseCountOther", { count: rows.length })}
               </Badge>
             </CardAction>
           </CardHeader>
@@ -634,28 +672,24 @@ export default function CasesView({ user, navigate }: ViewProps) {
               <div className="px-6 pb-4">
                 <EmptyState
                   icon={FolderKanban}
-                  title="No cases found"
-                  description={
-                    hasFilters
-                      ? "Try adjusting or clearing the filters."
-                      : "Register your first case to get started."
-                  }
+                  title={t("cases.emptyTitle")}
+                  description={hasFilters ? t("cases.emptyFilters") : t("cases.emptyFirst")}
                 />
               </div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow className="hover:bg-transparent">
-                    <TableHead className="pl-6">Case No</TableHead>
-                    <TableHead>Title</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Client</TableHead>
-                    <TableHead>Lawyer</TableHead>
-                    <TableHead>Court</TableHead>
-                    <TableHead>Next Hearing</TableHead>
-                    <TableHead>Priority</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="pr-6">Filed</TableHead>
+                    <TableHead className="pl-6">{t("cases.colCaseNo")}</TableHead>
+                    <TableHead>{t("cases.colTitle")}</TableHead>
+                    <TableHead>{t("common.type")}</TableHead>
+                    <TableHead>{t("cases.colClient")}</TableHead>
+                    <TableHead>{t("cases.colLawyer")}</TableHead>
+                    <TableHead>{t("cases.court")}</TableHead>
+                    <TableHead>{t("cases.colNextHearing")}</TableHead>
+                    <TableHead>{t("cases.priority")}</TableHead>
+                    <TableHead>{t("common.status")}</TableHead>
+                    <TableHead className="pr-6">{t("cases.colFiled")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -666,7 +700,7 @@ export default function CasesView({ user, navigate }: ViewProps) {
                         key={c.id}
                         role="button"
                         tabIndex={0}
-                        aria-label={`Open case ${c.caseNumber}`}
+                        aria-label={t("cases.openCaseAria", { caseNumber: c.caseNumber })}
                         className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
                         onClick={() => navigate("case-detail", { id: c.id })}
                         onKeyDown={(e) => {
@@ -681,14 +715,16 @@ export default function CasesView({ user, navigate }: ViewProps) {
                           <div className="max-w-[16rem]">
                             <p className="truncate font-medium">{c.title}</p>
                             {c.oppositeParty ? (
-                              <p className="truncate text-xs text-muted-foreground">vs {c.oppositeParty}</p>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {t("ui.vs")} {c.oppositeParty}
+                              </p>
                             ) : null}
                           </div>
                         </TableCell>
-                        <TableCell className="text-sm">{c.type}</TableCell>
+                        <TableCell className="text-sm">{enumLabel("cases.type", c.type, t)}</TableCell>
                         <TableCell className="text-sm">{c.client?.name ?? "—"}</TableCell>
                         <TableCell className="text-sm">
-                          {c.lawyer?.name ?? <span className="italic text-muted-foreground">Unassigned</span>}
+                          {c.lawyer?.name ?? <span className="italic text-muted-foreground">{t("cases.unassigned")}</span>}
                         </TableCell>
                         <TableCell>
                           <p className="max-w-[12rem] truncate text-sm text-muted-foreground">{c.court}</p>
@@ -696,7 +732,9 @@ export default function CasesView({ user, navigate }: ViewProps) {
                         <TableCell>
                           {c.nextHearingDate && rel ? (
                             <div>
-                              <p className={cn("text-sm font-medium", rel === "Today" && "text-emerald-700")}>{rel}</p>
+                              <p className={cn("text-sm font-medium", rel === "Today" && "text-emerald-700")}>
+                                {relDay(rel, t)}
+                              </p>
                               <p className="text-xs text-muted-foreground">{formatDate(c.nextHearingDate)}</p>
                             </div>
                           ) : (
@@ -704,10 +742,10 @@ export default function CasesView({ user, navigate }: ViewProps) {
                           )}
                         </TableCell>
                         <TableCell>
-                          <StatusBadge map={priorityStyles} value={c.priority} />
+                          <StatusBadge map={translatedStyles(priorityStyles, t)} value={c.priority} />
                         </TableCell>
                         <TableCell>
-                          <StatusBadge map={caseStatusStyles} value={c.status} />
+                          <StatusBadge map={translatedStyles(caseStatusStyles, t)} value={c.status} />
                         </TableCell>
                         <TableCell className="pr-6 text-sm text-muted-foreground">{formatDate(c.filingDate)}</TableCell>
                       </TableRow>

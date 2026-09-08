@@ -23,33 +23,34 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { apiSend } from "@/lib/api-client"
+import { useLanguage } from "@/lib/i18n/language"
 import type { SessionUser } from "@/lib/types"
 
 interface Feature {
   icon: LucideIcon
-  title: string
-  description: string
+  titleKey: string
+  descriptionKey: string
 }
 
 const FEATURES: Feature[] = [
-  { icon: Gavel, title: "Cases, Hearings & Orders", description: "Track every matter from filing to final order." },
-  { icon: FileText, title: "Documents & Vakalatnama", description: "A secure vault for court papers and client files." },
-  { icon: Receipt, title: "Invoices, bKash/Nagad/Rocket", description: "Bill clients and collect via mobile wallets." },
-  { icon: Bell, title: "Hearing Reminders", description: "Today & tomorrow alerts so no date is missed." },
+  { icon: Gavel, titleKey: "login.featureCases", descriptionKey: "login.featureCasesDesc" },
+  { icon: FileText, titleKey: "login.featureDocuments", descriptionKey: "login.featureDocumentsDesc" },
+  { icon: Receipt, titleKey: "login.featureBilling", descriptionKey: "login.featureBillingDesc" },
+  { icon: Bell, titleKey: "login.featureReminders", descriptionKey: "login.featureRemindersDesc" },
 ]
 
 interface DemoAccount {
-  label: string
+  labelKey: string
   icon: LucideIcon
   email: string
   password: string
 }
 
 const DEMO_ACCOUNTS: DemoAccount[] = [
-  { label: "Admin", icon: Crown, email: "admin@ainsheba.bd", password: "Admin@123" },
-  { label: "Lawyer", icon: Gavel, email: "kamal@ainsheba.bd", password: "Lawyer@123" },
-  { label: "Staff", icon: Briefcase, email: "staff@ainsheba.bd", password: "Staff@123" },
-  { label: "Client", icon: UserIcon, email: "client@ainsheba.bd", password: "Client@123" },
+  { labelKey: "login.demoAdmin", icon: Crown, email: "admin@ainsheba.bd", password: "Admin@123" },
+  { labelKey: "login.demoLawyer", icon: Gavel, email: "kamal@ainsheba.bd", password: "Lawyer@123" },
+  { labelKey: "login.demoStaff", icon: Briefcase, email: "staff@ainsheba.bd", password: "Staff@123" },
+  { labelKey: "login.demoClient", icon: UserIcon, email: "client@ainsheba.bd", password: "Client@123" },
 ]
 
 /**
@@ -65,6 +66,7 @@ export interface LoginScreenProps {
 }
 
 export function LoginScreen({ onLogin }: LoginScreenProps) {
+  const { t } = useLanguage()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
@@ -75,10 +77,10 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
     setPending(true)
     try {
       const user = await apiSend<SessionUser>("POST", "/api/auth/login", { email: em.trim(), password: pw })
-      toast.success(`Welcome back, ${user.name}`)
+      toast.success(t("login.welcome", { name: user.name }))
       onLogin(user)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Sign in failed. Please try again.")
+      toast.error(e instanceof Error ? e.message : t("login.errorGeneric"))
     } finally {
       setPending(false)
     }
@@ -114,26 +116,26 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             <Scale className="h-6 w-6" />
           </span>
           <div>
-            <p className="text-2xl font-bold tracking-tight text-white">AinSheba</p>
+            <p className="text-2xl font-bold tracking-tight text-white">{t("common.appName")}</p>
             <p className="text-sm text-emerald-200/70">আইনসেবা</p>
           </div>
         </div>
 
         <div className="relative space-y-6">
           <p className="text-sm font-medium uppercase tracking-wider text-emerald-200/60">
-            Legal Case Management — Bangladesh
+            {t("common.appTagline")}
           </p>
           <div className="space-y-5">
             {FEATURES.map((f) => {
               const Icon = f.icon
               return (
-                <div key={f.title} className="flex items-start gap-3">
+                <div key={f.titleKey} className="flex items-start gap-3">
                   <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white/10 text-emerald-100">
                     <Icon className="h-5 w-5" />
                   </span>
                   <div>
-                    <p className="text-sm font-medium text-white">{f.title}</p>
-                    <p className="text-xs text-emerald-200/60">{f.description}</p>
+                    <p className="text-sm font-medium text-white">{t(f.titleKey)}</p>
+                    <p className="text-xs text-emerald-200/60">{t(f.descriptionKey)}</p>
                   </div>
                 </div>
               )
@@ -141,7 +143,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
           </div>
         </div>
 
-        <p className="relative text-xs text-emerald-200/40">© 2026 AinSheba · আইনসেবা — built for chambers & advocates</p>
+        <p className="relative text-xs text-emerald-200/40">{t("login.footerNote")}</p>
       </div>
 
       {/* RIGHT — sign-in form */}
@@ -151,23 +153,23 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
             <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-600 text-white">
               <Scale className="h-6 w-6" />
             </span>
-            <p className="text-xl font-semibold tracking-tight">AinSheba</p>
-            <p className="text-xs text-muted-foreground">আইনসেবা · Legal Case Management — Bangladesh</p>
+            <p className="text-xl font-semibold tracking-tight">{t("common.appName")}</p>
+            <p className="text-xs text-muted-foreground">আইনসেবা · {t("common.appTagline")}</p>
           </div>
 
           <Card className="border-stone-200/80">
             <CardHeader>
-              <CardTitle className="text-lg font-semibold tracking-tight">Sign in to your chamber</CardTitle>
-              <CardDescription>Enter your email and password to access your cases.</CardDescription>
+              <CardTitle className="text-lg font-semibold tracking-tight">{t("login.title")}</CardTitle>
+              <CardDescription>{t("login.subtitle")}</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="login-email">Email</Label>
+                  <Label htmlFor="login-email">{t("login.email")}</Label>
                   <Input
                     id="login-email"
                     type="email"
-                    placeholder="you@chamber.bd"
+                    placeholder={t("login.emailPlaceholder")}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     autoComplete="email"
@@ -176,7 +178,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="login-password">Password</Label>
+                  <Label htmlFor="login-password">{t("login.password")}</Label>
                   <div className="relative">
                     <Input
                       id="login-password"
@@ -192,7 +194,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                     <button
                       type="button"
                       onClick={() => setShowPassword((s) => !s)}
-                      aria-label={showPassword ? "Hide password" : "Show password"}
+                      aria-label={showPassword ? t("login.hidePassword") : t("login.showPassword")}
                       className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
                     >
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -201,7 +203,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                 </div>
                 <Button type="submit" className="w-full" disabled={pending}>
                   {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogIn className="h-4 w-4" />}
-                  {pending ? "Signing in…" : "Sign in"}
+                  {pending ? t("login.signingIn") : t("login.signIn")}
                 </Button>
               </form>
             </CardContent>
@@ -210,15 +212,15 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
           {SHOW_DEMO_ACCOUNTS ? (
             <Card className="border-stone-200/80">
               <CardHeader>
-                <CardTitle className="text-sm">Demo accounts</CardTitle>
-                <CardDescription className="text-xs">One-click sign in with a seeded role account.</CardDescription>
+                <CardTitle className="text-sm">{t("login.demoTitle")}</CardTitle>
+                <CardDescription className="text-xs">{t("login.demoSubtitle")}</CardDescription>
               </CardHeader>
               <CardContent className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {DEMO_ACCOUNTS.map((acc) => {
                   const Icon = acc.icon
                   return (
                     <Button
-                      key={acc.label}
+                      key={acc.email}
                       type="button"
                       variant="outline"
                       size="sm"
@@ -228,7 +230,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
                     >
                       <Icon className="h-4 w-4 shrink-0 text-emerald-700" />
                       <span className="min-w-0 flex-1 text-left">
-                        <span className="block text-xs font-medium">{acc.label}</span>
+                        <span className="block text-xs font-medium">{t(acc.labelKey)}</span>
                         <span className="block truncate text-[11px] text-muted-foreground">{acc.email}</span>
                       </span>
                     </Button>

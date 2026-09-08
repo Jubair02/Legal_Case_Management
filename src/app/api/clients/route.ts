@@ -4,6 +4,7 @@ import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireStr
 import { CLIENT_TYPES } from "@/lib/constants"
 import { hashPassword, MAX_PASSWORD_LENGTH } from "@/lib/password"
 import { EMAIL_RE } from "@/lib/validation"
+import { audit } from "@/lib/audit"
 
 const ACTIVE_CASE_STATUSES = ["ACTIVE", "PENDING", "ON_HOLD"]
 
@@ -103,7 +104,7 @@ export async function GET(request: Request) {
 /** POST /api/clients — ADMIN, STAFF. */
 export async function POST(request: Request) {
   return handle(async () => {
-    await requireAuth(["ADMIN", "STAFF"])
+    const user = await requireAuth(["ADMIN", "STAFF"])
     const body = await readJson<Record<string, unknown>>(request)
 
     const name = requireString(body.name, "name")
@@ -149,12 +150,15 @@ export async function POST(request: Request) {
           throw e
         })
       const profile = user.clientProfile!
+      await audit(user, "CLIENT_CREATE", "Client", profile.id, profile.name,
+        `Created client ${name} with portal access`)
       return ok(clientDTO(profile, 0, 0, user.email))
     }
 
     const client = await db.client.create({
       data: { name, phone, email, nid, address, clientType },
     })
+    await audit(user, "CLIENT_CREATE", "Client", client.id, client.name, `Created client ${name}`)
     return ok(clientDTO(client, 0, 0, null))
   })
 }

@@ -245,6 +245,99 @@ export interface ReportsDTO {
   }
 }
 
+/* ------------------------------- Audit log ------------------------------- */
+
+/** Field diff attached to some audit entries — { field: { from, to } }. */
+export interface AuditMetaDiff {
+  [field: string]: { from: unknown; to: unknown }
+}
+
+export interface AuditEntry {
+  id: string
+  actorId: string | null
+  actorName: string | null
+  actorRole: string | null
+  action: string
+  entityType: string | null
+  entityId: string | null
+  entityLabel: string | null
+  summary: string | null
+  meta: AuditMetaDiff | null
+  createdAt: string
+}
+
+export interface AuditListDTO {
+  items: AuditEntry[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+/* ---------------------------- SMS/Email bridge ---------------------------- */
+
+export type OutboundEventKey =
+  | "HEARING_TODAY"
+  | "HEARING_TOMORROW"
+  | "HEARING_SCHEDULED"
+  | "HEARING_UPDATED"
+  | "INVOICE_ISSUED"
+  | "INVOICE_OVERDUE"
+  | "PAYMENT_RECEIVED"
+
+export interface OutboundSettingsDTO {
+  smsEnabled: boolean
+  emailEnabled: boolean
+  events: Record<OutboundEventKey, boolean>
+}
+
+export interface OutboundMessageDTO {
+  id: string
+  channel: string // SMS | EMAIL
+  recipient: string
+  recipientName: string | null
+  userId: string | null
+  event: string
+  body: string
+  caseId: string | null
+  caseNumber: string | null
+  status: string // PENDING | SENT | SIMULATED | FAILED
+  providerRef: string | null
+  error: string | null
+  attempts: number
+  sentAt: string | null
+  dedupeKey: string | null
+  createdAt: string
+}
+
+export interface OutboundProviderStatusDTO {
+  sms: "live" | "simulated"
+  email: "live" | "simulated"
+  smsProviderUrl: string | null
+  emailProviderUrl: string | null
+}
+
+/** GET /api/outbound payload — items + counters + bridge settings + provider status. */
+export interface OutboundListDTO {
+  items: OutboundMessageDTO[]
+  stats: Record<string, number>
+  settings: OutboundSettingsDTO
+  providers: OutboundProviderStatusDTO
+}
+
+/** POST /api/outbound/sweep payload. */
+export interface ReminderSweepResult {
+  ranAt: string
+  today: { hearings: number; notified: number }
+  tomorrow: { hearings: number; notified: number }
+}
+
+/** POST /api/outbound/[id]/retry payload. */
+export interface OutboundRetryResult {
+  ok: boolean
+  status: string
+  error?: string | null
+}
+
 /* ---------------------------- SPA view system ---------------------------- */
 
 export type ViewKey =
@@ -259,6 +352,7 @@ export type ViewKey =
   | "notifications"
   | "reports"
   | "settings"
+  | "audit"
 
 export type ViewParams = Record<string, string>
 

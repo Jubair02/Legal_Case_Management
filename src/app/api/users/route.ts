@@ -4,6 +4,7 @@ import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireStr
 import { ROLES } from "@/lib/constants"
 import { hashPassword, MAX_PASSWORD_LENGTH } from "@/lib/password"
 import { EMAIL_RE } from "@/lib/validation"
+import { audit } from "@/lib/audit"
 
 const userInclude = {
   lawyerProfile: { select: { name: true } },
@@ -55,7 +56,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   return handle(async () => {
-    await requireAuth(["ADMIN"])
+    const actor = await requireAuth(["ADMIN"])
     const body = await readJson<Record<string, unknown>>(request)
 
     const name = requireString(body.name, "name")
@@ -92,6 +93,9 @@ export async function POST(request: Request) {
         throwConflictIfUniqueViolation(e, "A user with this email already exists.")
         throw e
       })
+
+    // Never audit password material — only the role + email of the created user.
+    await audit(actor, "USER_CREATE", "User", user.id, user.email, `Created ${role} user ${email}`)
 
     return ok(userDTO(user))
   })

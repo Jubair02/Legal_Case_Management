@@ -5,6 +5,7 @@ import { ApiError, handle, optionalString, requireAuth } from "@/lib/api-helpers
 import { assertCaseWriteAccess } from "@/lib/permissions"
 import { ALLOWED_MIME_PREFIXES, MAX_FILE_SIZE } from "@/lib/constants"
 import { clientUserId, notifyUsers } from "@/lib/notify"
+import { audit } from "@/lib/audit"
 
 function sanitizeFileName(name: string): string {
   const dot = name.lastIndexOf(".")
@@ -85,22 +86,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       },
     })
 
-    if (sharedWithClient) {
-      const caseRow = await db.case.findUnique({
-        where: { id },
-        select: { clientId: true, caseNumber: true },
+    const caseRow = await db.case.findUnique({
+      where: { id },
+      select: { caseNumber: true, clientId: true },
+    })
+    if (sharedWithClient && caseRow) {
+      const clientPortalUserId = await clientUserId(caseRow.clientId)
+      await notifyUsers([clientPortalUserId], {
+        title: `New Document — ${documentName}`,
+        message: `A document has been shared with you on case ${caseRow.caseNumber}.`,
+        type: "CASE",
+        caseId: id,
+        link: `case-detail:${id}`,
       })
-      if (caseRow) {
-        const clientPortalUserId = await clientUserId(caseRow.clientId)
-        await notifyUsers([clientPortalUserId], {
-          title: `New Document — ${documentName}`,
-          message: `A document has been shared with you on case ${caseRow.caseNumber}.`,
-          type: "CASE",
-          caseId: id,
-          link: `case-detail:${id}`,
-        })
-      }
     }
+
+    await audit(user, "DOCUMENT_UPLOAD", "Document", created.id, created.documentName,
+      `Uploaded ${created.documentName} to ${caseRow?.caseNumber ?? "unknown case"}`)
 
     return Response.json(
       {

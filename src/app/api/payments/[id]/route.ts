@@ -1,6 +1,7 @@
 import { db } from "@/lib/db"
 import { ApiError, handle, ok, requireAuth } from "@/lib/api-helpers"
 import { dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
+import { audit } from "@/lib/audit"
 
 /**
  * DELETE /api/payments/[id] — ADMIN only.
@@ -12,7 +13,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   return handle(async () => {
-    await requireAuth(["ADMIN"])
+    const user = await requireAuth(["ADMIN"])
     const { id } = await params
 
     const payment = await db.payment.findUnique({
@@ -51,6 +52,9 @@ export async function DELETE(
       }
       return status
     })
+
+    await audit(user, "PAYMENT_DELETE", "Payment", payment.id, payment.invoice.invoiceNumber,
+      `Deleted payment of ৳${payment.amount.toLocaleString("en-US")} from ${payment.invoice.invoiceNumber}`)
 
     return ok({
       ok: true,

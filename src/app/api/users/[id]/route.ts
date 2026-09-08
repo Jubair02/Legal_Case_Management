@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireString } from "@/lib/api-helpers"
 import { ROLES } from "@/lib/constants"
 import { hashPassword, MAX_PASSWORD_LENGTH } from "@/lib/password"
+import { audit, diffFields } from "@/lib/audit"
 
 const userInclude = {
   lawyerProfile: { select: { name: true } },
@@ -69,6 +70,16 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
 
     const updated = await db.user.update({ where: { id }, data, include: userInclude })
+
+    // Password material is never audited — only whitelisted profile fields diff.
+    const userDiff = diffFields(
+      target as unknown as Record<string, unknown>,
+      updated as unknown as Record<string, unknown>,
+      ["name", "email", "phone", "role", "status"]
+    )
+    await audit(auth, "USER_UPDATE", "User", id, target.email,
+      `Updated user ${target.email}`, userDiff)
+
     return ok(userDTO(updated))
   })
 }

@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireNumber, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
 import { hashPassword, MAX_PASSWORD_LENGTH } from "@/lib/password"
 import { EMAIL_RE } from "@/lib/validation"
+import { audit } from "@/lib/audit"
 
 const ACTIVE_CASE_STATUSES = ["ACTIVE", "PENDING", "ON_HOLD"]
 
@@ -75,7 +76,7 @@ export async function GET(request: Request) {
 /** POST /api/lawyers — ADMIN only. */
 export async function POST(request: Request) {
   return handle(async () => {
-    await requireAuth(["ADMIN"])
+    const user = await requireAuth(["ADMIN"])
     const body = await readJson<Record<string, unknown>>(request)
 
     const name = requireString(body.name, "name")
@@ -130,6 +131,9 @@ export async function POST(request: Request) {
             })
         ).lawyerProfile
       : await db.lawyer.create({ data: profileData })
+
+    await audit(user, "LAWYER_CREATE", "Lawyer", lawyer.id, lawyer.name,
+      `Created lawyer ${name}${createPortalAccess ? " with portal access" : ""}`)
 
     // A newly created lawyer has no cases yet.
     return ok({

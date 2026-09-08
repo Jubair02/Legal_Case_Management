@@ -9,9 +9,12 @@ import {
   KeyRound,
   Lock,
   Mail,
+  MessageSquareText,
   MoreHorizontal,
   Pencil,
   Phone,
+  RefreshCw,
+  RotateCcw,
   Scale,
   Search,
   Trash2,
@@ -47,12 +50,23 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { apiSend } from "@/lib/api-client"
+import { apiGet, apiSend } from "@/lib/api-client"
 import { ROLES, ROLE_LABELS } from "@/lib/constants"
-import type { UserDTO, ViewProps } from "@/lib/types"
-import { cn, formatDate, initials } from "@/lib/utils"
+import { statusLabel, useLanguage } from "@/lib/i18n/language"
+import type {
+  OutboundEventKey,
+  OutboundListDTO,
+  OutboundMessageDTO,
+  OutboundRetryResult,
+  OutboundSettingsDTO,
+  ReminderSweepResult,
+  UserDTO,
+  ViewProps,
+} from "@/lib/types"
+import { cn, formatDate, formatDateTime, initials } from "@/lib/utils"
 import { isValidEmail } from "@/lib/validation"
 
 const ALL = "ALL"
@@ -64,19 +78,21 @@ const ROLE_BADGE_CLASSES: Record<string, string> = {
   STAFF: "border-stone-200 bg-stone-50 text-stone-600",
 }
 
-function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : "Something went wrong. Please try again."
+function errorMessage(e: unknown, fallback: string): string {
+  return e instanceof Error ? e.message : fallback
 }
 
 function RoleBadge({ role }: { role: string }) {
+  const { t } = useLanguage()
   return (
     <Badge variant="outline" className={cn("border", ROLE_BADGE_CLASSES[role] ?? ROLE_BADGE_CLASSES.STAFF)}>
-      {ROLE_LABELS[role] ?? role}
+      {statusLabel(role, t)}
     </Badge>
   )
 }
 
 function StatusDot({ status }: { status: string }) {
+  const { t } = useLanguage()
   const active = status === "ACTIVE"
   return (
     <span className="inline-flex items-center gap-1.5 text-sm">
@@ -84,7 +100,9 @@ function StatusDot({ status }: { status: string }) {
         className={cn("h-2 w-2 rounded-full", active ? "bg-emerald-500" : "bg-stone-400")}
         aria-hidden="true"
       />
-      <span className={active ? "text-emerald-700" : "text-stone-500"}>{active ? "Active" : "Inactive"}</span>
+      <span className={active ? "text-emerald-700" : "text-stone-500"}>
+        {active ? t("status.active") : t("status.inactive")}
+      </span>
     </span>
   )
 }
@@ -102,6 +120,7 @@ function UserFormDialog({
   editing: UserDTO | null
   onSaved: () => void
 }) {
+  const { t } = useLanguage()
   const isEdit = !!editing
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
@@ -124,21 +143,21 @@ function UserFormDialog({
 
   const submit = async () => {
     if (!name.trim()) {
-      toast.error("Please enter a name.")
+      toast.error(t("settings.nameRequired"))
       return
     }
     if (!isEdit) {
       if (!isValidEmail(email)) {
-        toast.error("Please enter a valid email address.")
+        toast.error(t("settings.emailInvalid"))
         return
       }
       if (password.length < 6) {
-        toast.error("Password must be at least 6 characters.")
+        toast.error(t("settings.passwordMinToast"))
         return
       }
     }
     if (isEdit && password && password.length < 6) {
-      toast.error("New password must be at least 6 characters.")
+      toast.error(t("settings.newPasswordMinToast"))
       return
     }
     setPending(true)
@@ -151,7 +170,7 @@ function UserFormDialog({
           status,
           ...(password ? { password } : {}),
         })
-        toast.success("User updated")
+        toast.success(t("settings.userUpdated"))
       } else {
         await apiSend("POST", "/api/users", {
           name: name.trim(),
@@ -160,12 +179,12 @@ function UserFormDialog({
           phone: phone.trim() || undefined,
           role,
         })
-        toast.success("User created")
+        toast.success(t("settings.userCreated"))
       }
       onSaved()
       onOpenChange(false)
     } catch (e) {
-      toast.error(errorMessage(e))
+      toast.error(errorMessage(e, t("settings.genericError")))
     } finally {
       setPending(false)
     }
@@ -175,20 +194,20 @@ function UserFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit User" : "Add User"}</DialogTitle>
+          <DialogTitle>{isEdit ? t("settings.editUser") : t("settings.addUser")}</DialogTitle>
           <DialogDescription>
-            {isEdit ? "Update this user's profile, role or portal access." : "Create a new portal account."}
+            {isEdit ? t("settings.editUserDesc") : t("settings.addUserDesc")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="user-name">Name *</Label>
-              <Input id="user-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" />
+              <Label htmlFor="user-name">{t("common.name")} *</Label>
+              <Input id="user-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t("common.name")} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="user-email">Email *</Label>
+              <Label htmlFor="user-email">{t("common.email")} *</Label>
               <Input
                 id="user-email"
                 type="email"
@@ -197,26 +216,26 @@ function UserFormDialog({
                 placeholder="user@example.com"
                 disabled={isEdit}
               />
-              {isEdit ? <p className="text-xs text-muted-foreground">Email cannot be changed.</p> : null}
+              {isEdit ? <p className="text-xs text-muted-foreground">{t("settings.emailFixed")}</p> : null}
             </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="user-password">{isEdit ? "New Password" : "Password *"}</Label>
+              <Label htmlFor="user-password">{isEdit ? t("settings.newPassword") : `${t("settings.password")} *`}</Label>
               <Input
                 id="user-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder={isEdit ? "Leave blank to keep current" : "At least 6 characters"}
+                placeholder={isEdit ? t("settings.passwordKeepShort") : t("settings.passwordMinShort")}
               />
               <p className="text-xs text-muted-foreground">
-                {isEdit ? "Leave blank to keep the current password." : "At least 6 characters."}
+                {isEdit ? t("settings.passwordKeepHint") : t("settings.passwordMinHint")}
               </p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="user-phone">Phone</Label>
+              <Label htmlFor="user-phone">{t("common.phone")}</Label>
               <Input
                 id="user-phone"
                 value={phone}
@@ -228,7 +247,7 @@ function UserFormDialog({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Role *</Label>
+              <Label>{t("settings.role")} *</Label>
               <Select value={role} onValueChange={setRole}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
@@ -236,7 +255,7 @@ function UserFormDialog({
                 <SelectContent>
                   {ROLES.map((r) => (
                     <SelectItem key={r} value={r}>
-                      {ROLE_LABELS[r]}
+                      {statusLabel(r, t)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -244,14 +263,14 @@ function UserFormDialog({
             </div>
             {isEdit ? (
               <div className="space-y-2">
-                <Label>Status</Label>
+                <Label>{t("common.status")}</Label>
                 <Select value={status} onValueChange={setStatus}>
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ACTIVE">Active</SelectItem>
-                    <SelectItem value="INACTIVE">Inactive</SelectItem>
+                    <SelectItem value="ACTIVE">{t("status.active")}</SelectItem>
+                    <SelectItem value="INACTIVE">{t("status.inactive")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -261,10 +280,10 @@ function UserFormDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={() => void submit()} disabled={pending}>
-            {pending ? "Saving…" : isEdit ? "Save Changes" : "Create User"}
+            {pending ? t("common.saving") : isEdit ? t("settings.saveChanges") : t("settings.createUser")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -275,6 +294,7 @@ function UserFormDialog({
 /* ------------------------------ User management ------------------------------ */
 
 function UsersPanel() {
+  const { t } = useLanguage()
   const { data, loading, error, refetch } = useApiData<UserDTO[]>("/api/users")
   const [search, setSearch] = useState("")
   const [roleFilter, setRoleFilter] = useState(ALL)
@@ -298,7 +318,7 @@ function UsersPanel() {
   const deleteUser = async () => {
     if (!deleting) return
     await apiSend("DELETE", `/api/users/${deleting.id}`)
-    toast.success("User deleted")
+    toast.success(t("settings.userDeleted"))
     refetch()
   }
 
@@ -310,17 +330,17 @@ function UsersPanel() {
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name, email or phone…"
-            aria-label="Search users"
+            placeholder={t("settings.searchUsers")}
+            aria-label={t("settings.searchUsers")}
             className="pl-8"
           />
         </div>
         <Select value={roleFilter} onValueChange={setRoleFilter}>
           <SelectTrigger className="w-full sm:w-52">
-            <SelectValue placeholder="All roles" />
+            <SelectValue placeholder={t("settings.allRoles")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL}>All roles</SelectItem>
+            <SelectItem value={ALL}>{t("settings.allRoles")}</SelectItem>
             {ROLES.map((r) => (
               <SelectItem key={r} value={r}>
                 {ROLE_LABELS[r]}
@@ -334,7 +354,7 @@ function UsersPanel() {
             setFormOpen(true)
           }}
         >
-          <UserPlus className="h-4 w-4" /> Add User
+          <UserPlus className="h-4 w-4" /> {t("settings.addUser")}
         </Button>
       </div>
 
@@ -343,11 +363,11 @@ function UsersPanel() {
       ) : error && !data ? (
         <EmptyState
           icon={AlertTriangle}
-          title="Could not load users"
+          title={t("settings.loadFailed")}
           description={error}
           action={
             <Button variant="outline" size="sm" onClick={refetch}>
-              Try again
+              {t("common.retry")}
             </Button>
           }
         />
@@ -357,11 +377,11 @@ function UsersPanel() {
             <div className="p-6">
               <EmptyState
                 icon={Users}
-                title={list.length === 0 ? "No users yet" : "No users match your filters"}
+                title={list.length === 0 ? t("settings.noUsers") : t("settings.noUsersFiltered")}
                 description={
                   list.length === 0
-                    ? "Portal accounts for admins, lawyers, staff and clients live here."
-                    : "Try a different search term or role filter."
+                    ? t("settings.noUsersDesc")
+                    : t("settings.noUsersFilteredDesc")
                 }
               />
             </div>
@@ -369,13 +389,13 @@ function UsersPanel() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead>User</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Linked Profile</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
+                  <TableHead>{t("settings.user")}</TableHead>
+                  <TableHead>{t("common.email")}</TableHead>
+                  <TableHead>{t("common.phone")}</TableHead>
+                  <TableHead>{t("settings.role")}</TableHead>
+                  <TableHead>{t("settings.linkedProfile")}</TableHead>
+                  <TableHead>{t("common.status")}</TableHead>
+                  <TableHead>{t("settings.created")}</TableHead>
                   <TableHead className="w-12" />
                 </TableRow>
               </TableHeader>
@@ -437,7 +457,7 @@ function UsersPanel() {
                             className="text-rose-600 focus:text-rose-600"
                             onSelect={() => setDeleting(u)}
                           >
-                            <Trash2 className="h-4 w-4" /> Delete
+                            <Trash2 className="h-4 w-4" /> {t("common.delete")}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -457,13 +477,16 @@ function UsersPanel() {
         onOpenChange={(o) => {
           if (!o) setDeleting(null)
         }}
-        title="Delete this user?"
+        title={t("settings.deleteUserTitle")}
         description={
           deleting
-            ? `${deleting.name} (${deleting.email}) will permanently lose portal access. Users with linked case records cannot be deleted.`
+            ? t("settings.deleteUserDesc", {
+                name: deleting.name,
+                email: deleting.email,
+              })
             : undefined
         }
-        confirmLabel="Delete"
+        confirmLabel={t("common.delete")}
         destructive
         onConfirm={deleteUser}
       />
@@ -568,6 +591,7 @@ function SystemInfoTab({ user }: { user: ViewProps["user"] }) {
 /* ---------------------------- Change password ---------------------------- */
 
 function ChangePasswordCard() {
+  const { t } = useLanguage()
   const [current, setCurrent] = useState("")
   const [next, setNext] = useState("")
   const [confirm, setConfirm] = useState("")
@@ -576,15 +600,15 @@ function ChangePasswordCard() {
 
   const submit = async () => {
     if (!current || !next) {
-      toast.error("Please fill in both password fields.")
+      toast.error(t("settings.fillBoth"))
       return
     }
     if (next.length < 6) {
-      toast.error("New password must be at least 6 characters.")
+      toast.error(t("settings.newPasswordMinToast"))
       return
     }
     if (next !== confirm) {
-      toast.error("New password and confirmation do not match.")
+      toast.error(t("settings.mismatch"))
       return
     }
     setPending(true)
@@ -593,7 +617,7 @@ function ChangePasswordCard() {
         currentPassword: current,
         newPassword: next,
       })
-      toast.success("Password changed successfully.")
+      toast.success(t("settings.passwordChanged"))
       setCurrent("")
       setNext("")
       setConfirm("")
@@ -659,20 +683,398 @@ function ChangePasswordCard() {
   )
 }
 
+/* ---------------------------- SMS/Email bridge (ADMIN) ---------------------------- */
+
+const OUTBOUND_EVENTS: OutboundEventKey[] = [
+  "HEARING_TODAY",
+  "HEARING_TOMORROW",
+  "HEARING_SCHEDULED",
+  "HEARING_UPDATED",
+  "INVOICE_ISSUED",
+  "INVOICE_OVERDUE",
+  "PAYMENT_RECEIVED",
+]
+
+const OUTBOUND_STATUS_CLASSES: Record<string, string> = {
+  SENT: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  SIMULATED: "border-amber-200 bg-amber-50 text-amber-700",
+  FAILED: "border-rose-200 bg-rose-50 text-rose-700",
+  PENDING: "border-stone-200 bg-stone-50 text-stone-600",
+}
+
+const CHANNEL_CLASSES: Record<string, string> = {
+  SMS: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  EMAIL: "border-teal-200 bg-teal-50 text-teal-700",
+}
+
+function OutboxStatusBadge({ status }: { status: string }) {
+  const { t } = useLanguage()
+  return (
+    <Badge variant="outline" className={cn("border", OUTBOUND_STATUS_CLASSES[status] ?? OUTBOUND_STATUS_CLASSES.PENDING)}>
+      {statusLabel(status, t)}
+    </Badge>
+  )
+}
+
+function OutboxChannelBadge({ channel }: { channel: string }) {
+  const { t } = useLanguage()
+  return (
+    <Badge variant="outline" className={cn("border text-[10px]", CHANNEL_CLASSES[channel] ?? CHANNEL_CLASSES.SMS)}>
+      {t(`settings.outbox.channel.${channel}`)}
+    </Badge>
+  )
+}
+
+function ProviderStatusBadge({ mode }: { mode: "live" | "simulated" }) {
+  const { t } = useLanguage()
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "border",
+        mode === "live" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"
+      )}
+    >
+      {mode === "live" ? t("settings.outbox.live") : t("settings.outbox.simulated")}
+    </Badge>
+  )
+}
+
+function OutbridgePanel() {
+  const { t } = useLanguage()
+
+  // Outbox filters — every change re-queries GET /api/outbound with query params.
+  const [channel, setChannel] = useState("ALL")
+  const [status, setStatus] = useState("ALL")
+  const [search, setSearch] = useState("")
+
+  const path = useMemo(() => {
+    const params = new URLSearchParams()
+    if (channel !== "ALL") params.set("channel", channel)
+    if (status !== "ALL") params.set("status", status)
+    if (search.trim()) params.set("q", search.trim())
+    const qs = params.toString()
+    return `/api/outbound${qs ? `?${qs}` : ""}`
+  }, [channel, status, search])
+
+  const { data, loading, error, refetch } = useApiData<OutboundListDTO>(path)
+
+  // Optimistic bridge settings: the override is displayed until fresh server
+  // data (by reference) replaces it — no state sync needed.
+  const [override, setOverride] = useState<{ value: OutboundSettingsDTO; base: OutboundSettingsDTO | null } | null>(null)
+  const serverSettings = data?.settings ?? null
+  const settings = override && override.base === serverSettings ? override.value : serverSettings
+
+  const [sweeping, setSweeping] = useState(false)
+  const [retryingId, setRetryId] = useState<string | null>(null)
+
+  const patchSettings = async (next: OutboundSettingsDTO) => {
+    if (!settings) return
+    setOverride({ value: next, base: serverSettings }) // optimistic
+    try {
+      await apiSend<OutboundSettingsDTO>("PATCH", "/api/settings/outbound", next)
+      toast.success(t("settings.outbox.savedToast"))
+      refetch() // confirm with server truth
+    } catch (e) {
+      setOverride(null) // revert to server state
+      toast.error(errorMessage(e, t("settings.outbox.saveFailedToast")))
+    }
+  }
+
+  const runSweep = async () => {
+    setSweeping(true)
+    try {
+      const res = await apiSend<ReminderSweepResult>("POST", "/api/outbound/sweep")
+      toast.success(
+        t("settings.outbox.sweepToast", { today: res?.today?.hearings ?? 0, tomorrow: res?.tomorrow?.hearings ?? 0 })
+      )
+      refetch()
+    } catch (e) {
+      toast.error(errorMessage(e, t("settings.outbox.sweepFailed")))
+    } finally {
+      setSweeping(false)
+    }
+  }
+
+  const retryMessage = async (m: OutboundMessageDTO) => {
+    setRetryId(m.id)
+    try {
+      const res = await apiSend<OutboundRetryResult>("POST", `/api/outbound/${m.id}/retry`)
+      if (res?.ok) {
+        toast.success(t("settings.outbox.retryQueued", { status: statusLabel(res.status ?? "SENT", t) }))
+      } else {
+        toast.error(res?.error || t("settings.outbox.retryFailed"))
+      }
+      refetch()
+    } catch (e) {
+      toast.error(errorMessage(e, t("settings.outbox.retryFailed")))
+    } finally {
+      setRetryId(null)
+    }
+  }
+
+  const messages = data?.items ?? []
+  const stats = data?.stats ?? {}
+  const hasActiveFilters = channel !== "ALL" || status !== "ALL" || search.trim() !== ""
+
+  const providerHint = (kind: "sms" | "email") => {
+    const live = data?.providers?.[kind] === "live"
+    return live
+      ? t("settings.outbox.liveHint")
+      : t(kind === "sms" ? "settings.outbox.simulatedHintSms" : "settings.outbox.simulatedHintEmail")
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Provider status + master toggles */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <SectionCard title={t("settings.outbox.smsGateway")}>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+                <MessageSquareText className="h-4.5 w-4.5" />
+              </span>
+              <ProviderStatusBadge mode={data?.providers?.sms ?? "simulated"} />
+            </div>
+            <p className="text-sm text-muted-foreground">{providerHint("sms")}</p>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-stone-200/80 px-3 py-2.5">
+              <Label htmlFor="outbound-sms-enabled" className="text-sm font-medium">
+                {t("settings.outbox.smsEnabled")}
+              </Label>
+              <Switch
+                id="outbound-sms-enabled"
+                checked={settings?.smsEnabled ?? false}
+                disabled={!settings}
+                onCheckedChange={(v) => settings && void patchSettings({ ...settings, smsEnabled: v })}
+              />
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard title={t("settings.outbox.emailGateway")}>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-teal-100 text-teal-700">
+                <Mail className="h-4.5 w-4.5" />
+              </span>
+              <ProviderStatusBadge mode={data?.providers?.email ?? "simulated"} />
+            </div>
+            <p className="text-sm text-muted-foreground">{providerHint("email")}</p>
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-stone-200/80 px-3 py-2.5">
+              <Label htmlFor="outbound-email-enabled" className="text-sm font-medium">
+                {t("settings.outbox.emailEnabled")}
+              </Label>
+              <Switch
+                id="outbound-email-enabled"
+                checked={settings?.emailEnabled ?? false}
+                disabled={!settings}
+                onCheckedChange={(v) => settings && void patchSettings({ ...settings, emailEnabled: v })}
+              />
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* Event toggles */}
+      <SectionCard title={t("settings.outbox.eventsTitle")} description={t("settings.outbox.eventsDesc")}>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {OUTBOUND_EVENTS.map((event) => (
+            <div
+              key={event}
+              className="flex items-center justify-between gap-3 rounded-lg border border-stone-200/80 px-3 py-2.5"
+            >
+              <Label htmlFor={`outbound-event-${event}`} className="text-sm font-normal">
+                {t(`settings.outbox.event.${event}`)}
+              </Label>
+              <Switch
+                id={`outbound-event-${event}`}
+                checked={settings?.events?.[event] ?? false}
+                disabled={!settings}
+                onCheckedChange={(v) =>
+                  settings && void patchSettings({ ...settings, events: { ...settings.events, [event]: v } })
+                }
+              />
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+
+      {/* Outbox */}
+      <SectionCard
+        title={t("settings.outbox.outboxTitle")}
+        description={t("settings.outbox.outboxDesc")}
+        action={
+          <Button size="sm" onClick={() => void runSweep()} disabled={sweeping} className="gap-1.5">
+            <RefreshCw className={cn("h-4 w-4", sweeping && "animate-spin")} />
+            {sweeping ? t("common.loading") : t("settings.outbox.sweep")}
+          </Button>
+        }
+      >
+        <div className="space-y-4">
+          {/* Per-status counters */}
+          <div className="flex flex-wrap gap-2">
+            {(["PENDING", "SENT", "SIMULATED", "FAILED"] as const).map((s) => (
+              <Badge key={s} variant="outline" className={cn("gap-1.5 border", OUTBOUND_STATUS_CLASSES[s])}>
+                {statusLabel(s, t)}
+                <span className="font-semibold tabular-nums">{stats[s] ?? 0}</span>
+              </Badge>
+            ))}
+          </div>
+
+          {/* Outbox filters */}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Select value={channel} onValueChange={setChannel}>
+              <SelectTrigger className="w-full sm:w-40" aria-label={t("settings.outbox.channelAll")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">{t("settings.outbox.channelAll")}</SelectItem>
+                <SelectItem value="SMS">{t("settings.outbox.channel.SMS")}</SelectItem>
+                <SelectItem value="EMAIL">{t("settings.outbox.channel.EMAIL")}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger className="w-full sm:w-40" aria-label={t("settings.outbox.statusAll")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">{t("settings.outbox.statusAll")}</SelectItem>
+                {(["PENDING", "SENT", "SIMULATED", "FAILED"] as const).map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {statusLabel(s, t)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <div className="relative flex-1">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t("settings.outbox.searchPlaceholder")}
+                aria-label={t("settings.outbox.searchPlaceholder")}
+                className="pl-8"
+              />
+            </div>
+          </div>
+
+          {loading && !data ? (
+            <LoadingBlock rows={4} />
+          ) : error && !data ? (
+            <EmptyState
+              icon={AlertTriangle}
+              title={t("settings.outbox.errLoad")}
+              description={error}
+              action={
+                <Button variant="outline" size="sm" onClick={() => refetch()}>
+                  {t("common.retry")}
+                </Button>
+              }
+            />
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-stone-200/80">
+              <div className="max-h-96 overflow-auto">
+                {messages.length === 0 ? (
+                  <div className="p-6">
+                    <EmptyState
+                      icon={MessageSquareText}
+                      title={hasActiveFilters ? t("settings.outbox.emptyFiltered") : t("settings.outbox.empty")}
+                      description={
+                        hasActiveFilters ? t("settings.outbox.emptyFilteredDesc") : t("settings.outbox.emptyDesc")
+                      }
+                    />
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        <TableHead className="whitespace-nowrap">{t("settings.outbox.colTime")}</TableHead>
+                        <TableHead>{t("settings.outbox.colChannel")}</TableHead>
+                        <TableHead>{t("settings.outbox.colRecipient")}</TableHead>
+                        <TableHead>{t("settings.outbox.colEvent")}</TableHead>
+                        <TableHead>{t("settings.outbox.colCase")}</TableHead>
+                        <TableHead>{t("settings.outbox.colStatus")}</TableHead>
+                        <TableHead className="min-w-32">{t("settings.outbox.colError")}</TableHead>
+                        <TableHead className="w-20 text-right">{t("common.actions")}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {messages.map((m) => (
+                        <TableRow key={m.id}>
+                          <TableCell className="whitespace-nowrap text-muted-foreground">
+                            {formatDateTime(m.createdAt)}
+                          </TableCell>
+                          <TableCell>
+                            <OutboxChannelBadge channel={m.channel} />
+                          </TableCell>
+                          <TableCell>
+                            <p className="text-sm font-medium">{m.recipientName ?? m.recipient}</p>
+                            {m.recipientName ? (
+                              <p className="text-xs text-muted-foreground">{m.recipient}</p>
+                            ) : null}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="border-stone-200 bg-stone-50 font-mono text-[10px] text-stone-600">
+                              {m.event}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-sm">{m.caseNumber ?? "—"}</TableCell>
+                          <TableCell>
+                            <OutboxStatusBadge status={m.status} />
+                          </TableCell>
+                          <TableCell className="max-w-40">
+                            {m.error ? (
+                              <p className="truncate text-xs text-rose-600" title={m.error}>
+                                {m.error}
+                              </p>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {m.status === "FAILED" || m.status === "SIMULATED" ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 gap-1 px-2 text-xs"
+                                disabled={retryingId === m.id}
+                                onClick={() => void retryMessage(m)}
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                                {t("settings.outbox.retry")}
+                              </Button>
+                            ) : null}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </SectionCard>
+    </div>
+  )
+}
+
 /* --------------------------------- View --------------------------------- */
 
 export default function SettingsView({ user }: ViewProps) {
+  const { t } = useLanguage()
   const isAdmin = user.role === "ADMIN"
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Settings" description="User management & chamber information" />
+      <PageHeader title={t("settings.title")} description={t("settings.description")} />
 
       <Tabs defaultValue={isAdmin ? "users" : "account"}>
         <TabsList>
-          {isAdmin ? <TabsTrigger value="users">User Management</TabsTrigger> : null}
-          <TabsTrigger value="account">My Account</TabsTrigger>
-          <TabsTrigger value="system">System Info</TabsTrigger>
+          {isAdmin ? <TabsTrigger value="users">{t("settings.userManagement")}</TabsTrigger> : null}
+          <TabsTrigger value="account">{t("settings.myAccount")}</TabsTrigger>
+          <TabsTrigger value="system">{t("settings.systemInfo")}</TabsTrigger>
+          {isAdmin ? <TabsTrigger value="bridge">{t("settings.outbox.tab")}</TabsTrigger> : null}
         </TabsList>
 
         {isAdmin ? (
@@ -688,6 +1090,12 @@ export default function SettingsView({ user }: ViewProps) {
         <TabsContent value="system" className="mt-4">
           <SystemInfoTab user={user} />
         </TabsContent>
+
+        {isAdmin ? (
+          <TabsContent value="bridge" className="mt-4">
+            <OutbridgePanel />
+          </TabsContent>
+        ) : null}
       </Tabs>
     </div>
   )

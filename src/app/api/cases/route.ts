@@ -3,6 +3,7 @@ import { ApiError, handle, optionalString, parseDateOnly, readJson, requireAuth,
 import { caseScopeWhere } from "@/lib/permissions"
 import { CASE_PRIORITIES, CASE_STATUSES, CASE_TYPES } from "@/lib/constants"
 import { adminIds, clientUserId, lawyerUserId, notifyUsers } from "@/lib/notify"
+import { audit } from "@/lib/audit"
 
 type CaseRow = {
   id: string
@@ -193,6 +194,9 @@ export async function POST(request: Request) {
       caseId: created.id,
       link: `case-detail:${created.id}`,
     })
+
+    await audit(user, "CASE_CREATE", "Case", created.id, created.caseNumber,
+      `Created case ${created.caseNumber} — ${created.title}`)
 
     return Response.json({
       data: caseListDTO(created as CaseRow, null, "Case registered in the system."),

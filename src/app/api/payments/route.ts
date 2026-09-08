@@ -3,6 +3,8 @@ import { ApiError, handle, optionalString, parseDateOnly, readJson, requireAuth,
 import { PAYMENT_METHODS } from "@/lib/constants"
 import { dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
 import { adminIds, clientUserId, notifyUsers } from "@/lib/notify"
+import { audit } from "@/lib/audit"
+import { enqueueOutbound } from "@/lib/outbound"
 
 const paymentInclude = {
   invoice: {
@@ -107,7 +109,7 @@ export async function POST(request: Request) {
           case: {
             select: { caseNumber: true, title: true, lawyer: { select: { userId: true } } },
           },
-          client: { select: { id: true, name: true } },
+          client: { select: { id: true, name: true, phone: true, email: true, userId: true } },
           payments: { select: { amount: true } },
         },
       })
@@ -190,6 +192,31 @@ export async function POST(request: Request) {
       caseId: invoice.caseId ?? undefined,
       link: invoice.caseId ? `case-detail:${invoice.caseId}` : "billing",
     })
+
+    // SMS/Email bridge + audit trail — strictly after the transaction commits.
+    // invoice.payments was read inside the tx before the insert, so the new
+    // total paid is that sum plus the payment just created.
+    const paidNow = invoice.payments.reduce((s, p) => s + p.amount, 0) + created.amount
+    const remaining = Math.max(0, Math.round((invoice.amount - paidNow) * 100) / 100)
+    await enqueueOutbound({
+      event: "PAYMENT_RECEIVED",
+      recipients: [
+        {
+          phone: invoice.client.phone,
+          email: invoice.client.email,
+          name: invoice.client.name,
+          userId: invoice.client.userId,
+        },
+      ],
+      subject: "Payment received — AinSheba",
+      smsBody: `AinSheba: Payment of ৳${created.amount.toLocaleString("en-US")} received for invoice ${invoice.invoiceNumber}. Total paid ৳${paidNow.toLocaleString("en-US")}, remaining ৳${remaining.toLocaleString("en-US")}.`,
+      caseId: invoice.caseId,
+      caseNumber: invoice.case?.caseNumber ?? null,
+      dedupeKey: `payment-received:${created.id}`,
+    })
+
+    await audit(user, "PAYMENT_RECORD", "Payment", created.id, invoice.invoiceNumber,
+      `Received ৳${created.amount.toLocaleString("en-US")} (${created.paymentMethod}) toward ${invoice.invoiceNumber}`)
 
     return Response.json({ data: paymentDTO(created) }, { status: 201 })
   })

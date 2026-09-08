@@ -5,6 +5,7 @@ import { CLIENT_TYPES } from "@/lib/constants"
 import { caseScopeWhere } from "@/lib/permissions"
 import { dhakaDateKey } from "@/lib/dates"
 import { EMAIL_RE } from "@/lib/validation"
+import { audit, diffFields } from "@/lib/audit"
 
 const ACTIVE_CASE_STATUSES = ["ACTIVE", "PENDING", "ON_HOLD"]
 
@@ -158,7 +159,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 /** PATCH /api/clients/[id] — ADMIN, STAFF. */
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   return handle(async () => {
-    await requireAuth(["ADMIN", "STAFF"])
+    const user = await requireAuth(["ADMIN", "STAFF"])
     const { id } = await params
     const body = await readJson<Record<string, unknown>>(request)
 
@@ -228,6 +229,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const activeCases = await db.case.count({
       where: { clientId: id, status: { in: ACTIVE_CASE_STATUSES } },
     })
+
+    const clientDiff = diffFields(
+      client as unknown as Record<string, unknown>,
+      updated as unknown as Record<string, unknown>,
+      ["name", "phone", "email", "nid", "address", "clientType", "status"]
+    )
+    await audit(user, "CLIENT_UPDATE", "Client", id, client.name,
+      `Updated client ${client.name}`, clientDiff)
 
     return ok(clientDTO(updated!, updated!._count.cases, activeCases, updated!.user?.email ?? null))
   })

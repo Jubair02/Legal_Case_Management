@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { apiSend } from "@/lib/api-client"
 import { NOTIFICATIONS_CHANGED_EVENT } from "@/lib/events"
+import { useLanguage } from "@/lib/i18n/language"
 import type { NotificationDTO, ViewProps } from "@/lib/types"
 import { cn, formatDateTime } from "@/lib/utils"
 
@@ -45,6 +46,7 @@ function TypeIcon({ type }: { type: string }) {
 }
 
 export default function NotificationsView({ navigate }: ViewProps) {
+  const { t } = useLanguage()
   const { data, loading, error, refetch } = useApiData<NotificationDTO[]>("/api/notifications?take=50")
   const [filter, setFilter] = useState<Filter>("all")
   const [marking, setMarking] = useState(false)
@@ -57,12 +59,12 @@ export default function NotificationsView({ navigate }: ViewProps) {
     setMarking(true)
     try {
       await apiSend("POST", "/api/notifications/read-all")
-      toast.success("All notifications marked as read")
+      toast.success(t("notifications.markAllReadToast"))
       // Let the header badge know the unread count dropped to zero.
       window.dispatchEvent(new Event(NOTIFICATIONS_CHANGED_EVENT))
       refetch()
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not mark notifications as read.")
+      toast.error(e instanceof Error ? e.message : t("notifications.markAllReadFailed"))
     } finally {
       setMarking(false)
     }
@@ -86,7 +88,7 @@ export default function NotificationsView({ navigate }: ViewProps) {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Notifications" description="Hearing reminders & case alerts">
+      <PageHeader title={t("notifications.title")} description={t("notifications.description")}>
         <Button
           variant="outline"
           size="sm"
@@ -94,7 +96,7 @@ export default function NotificationsView({ navigate }: ViewProps) {
           disabled={marking || unreadCount === 0}
         >
           <CheckCheck className="h-4 w-4" />
-          Mark all as read
+          {t("notifications.markAllRead")}
         </Button>
       </PageHeader>
 
@@ -111,7 +113,7 @@ export default function NotificationsView({ navigate }: ViewProps) {
               : "border-stone-200 bg-white text-stone-600 hover:bg-stone-100"
           )}
         >
-          All {list.length > 0 ? `(${list.length})` : ""}
+          {t("common.all")} {list.length > 0 ? `(${list.length})` : ""}
         </button>
         <button
           type="button"
@@ -124,7 +126,7 @@ export default function NotificationsView({ navigate }: ViewProps) {
               : "border-stone-200 bg-white text-stone-600 hover:bg-stone-100"
           )}
         >
-          Unread {unreadCount > 0 ? `(${unreadCount})` : ""}
+          {t("notifications.unread")} {unreadCount > 0 ? `(${unreadCount})` : ""}
         </button>
       </div>
 
@@ -133,22 +135,22 @@ export default function NotificationsView({ navigate }: ViewProps) {
       ) : error && !data ? (
         <EmptyState
           icon={AlertTriangle}
-          title="Could not load notifications"
+          title={t("notifications.loadFailed")}
           description={error}
           action={
             <Button variant="outline" size="sm" onClick={refetch}>
-              Try again
+              {t("common.retry")}
             </Button>
           }
         />
       ) : shown.length === 0 ? (
         <EmptyState
           icon={Bell}
-          title="You're all caught up"
+          title={t("notifications.allCaughtUp")}
           description={
             filter === "unread"
-              ? "No unread notifications right now."
-              : "New hearing reminders and case alerts will appear here."
+              ? t("notifications.noUnread")
+              : t("notifications.emptyDescription")
           }
         />
       ) : (
@@ -170,7 +172,7 @@ export default function NotificationsView({ navigate }: ViewProps) {
                     <p className={cn("truncate text-sm", n.isRead ? "font-medium" : "font-bold text-foreground")}>
                       {n.title}
                     </p>
-                    {!n.isRead ? <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-label="Unread" /> : null}
+                    {!n.isRead ? <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" aria-label={t("notifications.unread")} /> : null}
                   </div>
                   <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">{n.message}</p>
                 </div>

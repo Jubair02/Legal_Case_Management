@@ -2,6 +2,7 @@ import { db } from "@/lib/db"
 import { ApiError, handle, ok, readJson, requireAuth, requireString } from "@/lib/api-helpers"
 import { hashPassword, MAX_PASSWORD_LENGTH, verifyPassword } from "@/lib/password"
 import { setSessionCookie, signSession } from "@/lib/auth"
+import { audit } from "@/lib/audit"
 
 /**
  * POST /api/auth/change-password
@@ -47,6 +48,9 @@ export async function POST(request: Request) {
       sessionVersion: updated.sessionVersion,
     })
     await setSessionCookie(token)
+
+    // No password material is ever audited — just the event + actor identity.
+    await audit(user, "AUTH_PASSWORD_CHANGE", "User", user.id, user.email, "Password changed")
 
     // New token too: sessionVersion was bumped, so any Bearer token the client
     // kept from login would otherwise stop working right after the change.

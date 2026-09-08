@@ -21,7 +21,7 @@ import { StatCard } from "@/components/shared/stat-card"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { useApiData } from "@/hooks/use-api-data"
 import { Badge } from "@/components/ui/badge"
-import { ROLE_LABELS } from "@/lib/constants"
+import { statusLabel, useLanguage } from "@/lib/i18n/language"
 import {
   caseStatusStyles,
   cn,
@@ -179,33 +179,34 @@ function CaseRows({ cases, navigate, emptyText = "—" }: { cases?: CaseListDTO[
 /* ------------------------------ Role dashboards ------------------------------ */
 
 function AdminDashboard({ data, navigate }: { data: DashboardDTO; navigate: NavigateFn }) {
+  const { t } = useLanguage()
   const s = data.stats ?? {}
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={FolderKanban} label="Total Cases" value={num(s.totalCases)} tone="emerald" />
-        <StatCard icon={Gavel} label="Active Cases" value={num(s.activeCases)} tone="amber" />
-        <StatCard icon={CalendarDays} label="Upcoming Hearings" value={num(s.upcomingHearings)} tone="teal" />
-        <StatCard icon={Archive} label="Closed Cases" value={num(s.closedCases)} tone="stone" />
+        <StatCard icon={FolderKanban} label={t("dashboard.totalCases")} value={num(s.totalCases)} tone="emerald" />
+        <StatCard icon={Gavel} label={t("dashboard.activeCases")} value={num(s.activeCases)} tone="amber" />
+        <StatCard icon={CalendarDays} label={t("dashboard.upcomingHearings")} value={num(s.upcomingHearings)} tone="teal" />
+        <StatCard icon={Archive} label={t("dashboard.closedCases")} value={num(s.closedCases)} tone="stone" />
         <StatCard
           icon={Wallet}
-          label="Pending Payments"
+          label={t("dashboard.pendingPayments")}
           value={formatCurrency(s.pendingAmount ?? 0)}
-          sub={`${num(s.pendingInvoiceCount)} invoices due`}
+          sub={t("dashboard.invoicesDue", { count: num(s.pendingInvoiceCount) })}
           tone="rose"
         />
-        <StatCard icon={Users} label="Total Clients" value={num(s.totalClients)} tone="emerald" />
-        <StatCard icon={Gavel} label="Total Lawyers" value={num(s.totalLawyers)} tone="gold" />
+        <StatCard icon={Users} label={t("dashboard.totalClients")} value={num(s.totalClients)} tone="emerald" />
+        <StatCard icon={Gavel} label={t("dashboard.totalLawyers")} value={num(s.totalLawyers)} tone="gold" />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <SectionCard title="Today's Hearings" description={formatDate(new Date())}>
-          <HearingList hearings={data.todaysHearings} navigate={navigate} emptyText="No hearings today" />
+        <SectionCard title={t("dashboard.todaysHearings")} description={formatDate(new Date())}>
+          <HearingList hearings={data.todaysHearings} navigate={navigate} emptyText={t("dashboard.noHearingsToday")} />
         </SectionCard>
-        <SectionCard title="Upcoming Hearings" description="Next 7 days">
-          <HearingList hearings={data.upcomingHearings} navigate={navigate} emptyText="No upcoming hearings" showRelativeDay />
+        <SectionCard title={t("dashboard.upcomingHearings")} description={t("dashboard.next7Days")}>
+          <HearingList hearings={data.upcomingHearings} navigate={navigate} emptyText={t("dashboard.noUpcomingHearings")} showRelativeDay />
         </SectionCard>
-        <SectionCard title="Recent Activities" description="Latest chamber events">
+        <SectionCard title={t("dashboard.recentActivities")} description={t("dashboard.latestEvents")}>
           <ActivityFeed activities={data.recentActivities} />
         </SectionCard>
       </div>
@@ -214,38 +215,40 @@ function AdminDashboard({ data, navigate }: { data: DashboardDTO; navigate: Navi
 }
 
 function LawyerDashboard({ data, navigate }: { data: DashboardDTO; navigate: NavigateFn }) {
+  const { t } = useLanguage()
   const s = data.stats ?? {}
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={FolderKanban} label="My Active Cases" value={num(s.myActiveCases)} tone="emerald" />
-        <StatCard icon={CalendarDays} label="Today's Hearings" value={num(s.todaysHearings)} tone="amber" />
-        <StatCard icon={Gavel} label="Upcoming Hearings" value={num(s.upcomingHearings)} tone="teal" />
+        <StatCard icon={FolderKanban} label={t("dashboard.myActiveCases")} value={num(s.myActiveCases)} tone="emerald" />
+        <StatCard icon={CalendarDays} label={t("dashboard.todaysHearings")} value={num(s.todaysHearings)} tone="amber" />
+        <StatCard icon={Gavel} label={t("dashboard.upcomingHearings")} value={num(s.upcomingHearings)} tone="teal" />
         <StatCard
           icon={Wallet}
-          label="Pending Client Payments"
+          label={t("dashboard.pendingClientPayments")}
           value={formatCurrency(s.pendingClientPayments ?? 0)}
           tone="rose"
         />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <SectionCard title="Today's Hearings" description={formatDate(new Date())}>
-          <HearingList hearings={data.todaysHearings} navigate={navigate} emptyText="No hearings today" />
+        <SectionCard title={t("dashboard.todaysHearings")} description={formatDate(new Date())}>
+          <HearingList hearings={data.todaysHearings} navigate={navigate} emptyText={t("dashboard.noHearingsToday")} />
         </SectionCard>
-        <SectionCard title="Upcoming Hearings" description="Next 7 days">
-          <HearingList hearings={data.upcomingHearings} navigate={navigate} emptyText="No upcoming hearings" showRelativeDay />
+        <SectionCard title={t("dashboard.upcomingHearings")} description={t("dashboard.next7Days")}>
+          <HearingList hearings={data.upcomingHearings} navigate={navigate} emptyText={t("dashboard.noUpcomingHearings")} showRelativeDay />
         </SectionCard>
       </div>
 
-      <SectionCard title="My Cases" description="Your 5 most recent assignments">
-        <CaseRows cases={data.myCases} navigate={navigate} emptyText="No cases assigned yet" />
+      <SectionCard title={t("dashboard.myCases")} description={t("dashboard.recentAssignments")}>
+        <CaseRows cases={data.myCases} navigate={navigate} emptyText={t("dashboard.noCasesAssigned")} />
       </SectionCard>
     </div>
   )
 }
 
 function ClientDashboard({ data, navigate }: { data: DashboardDTO; navigate: NavigateFn }) {
+  const { t } = useLanguage()
   const s = data.stats ?? {}
   const cases = data.myCases ?? []
   const invoices = data.outstandingInvoices ?? []
@@ -259,21 +262,21 @@ function ClientDashboard({ data, navigate }: { data: DashboardDTO; navigate: Nav
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={FolderKanban} label="My Cases" value={num(s.totalCases)} tone="emerald" />
-        <StatCard icon={Gavel} label="Active Cases" value={num(s.activeCases)} tone="teal" />
+        <StatCard icon={FolderKanban} label={t("dashboard.myCases")} value={num(s.totalCases)} tone="emerald" />
+        <StatCard icon={Gavel} label={t("dashboard.activeCases")} value={num(s.activeCases)} tone="teal" />
         <StatCard
           icon={CalendarDays}
-          label="Next Hearing"
+          label={t("dashboard.nextHearing")}
           value={nextRel ?? "—"}
           sub={nextDateRaw ? formatDate(nextDateRaw) : undefined}
           tone="amber"
         />
-        <StatCard icon={Wallet} label="Outstanding Bills" value={formatCurrency(s.outstandingAmount ?? 0)} tone="rose" />
+        <StatCard icon={Wallet} label={t("dashboard.outstandingBills")} value={formatCurrency(s.outstandingAmount ?? 0)} tone="rose" />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <SectionCard
-          title="Next Hearing"
+          title={t("dashboard.nextHearing")}
           description={nh?.court ?? undefined}
           className={nextSoon ? "border-amber-300 bg-amber-50/50" : undefined}
         >
@@ -281,7 +284,7 @@ function ClientDashboard({ data, navigate }: { data: DashboardDTO; navigate: Nav
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <Badge variant="outline" className="border border-amber-200 bg-amber-50 text-amber-800">
-                  {nh.hearingType ?? "Hearing"}
+                  {nh.hearingType ?? t("dashboard.hearingFallback")}
                 </Badge>
                 <span className="text-sm font-semibold text-emerald-700">{formatTime(nh.hearingDate)}</span>
               </div>
@@ -294,11 +297,11 @@ function ClientDashboard({ data, navigate }: { data: DashboardDTO; navigate: Nav
               </p>
             </div>
           ) : (
-            <p className="py-6 text-center text-sm text-muted-foreground">No upcoming hearing scheduled</p>
+            <p className="py-6 text-center text-sm text-muted-foreground">{t("dashboard.noNextHearing")}</p>
           )}
         </SectionCard>
 
-        <SectionCard title="My Cases" description="Tap a case to open its file">
+        <SectionCard title={t("dashboard.myCases")} description={t("dashboard.tapCase")}>
           {cases.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">—</p>
           ) : (
@@ -316,7 +319,7 @@ function ClientDashboard({ data, navigate }: { data: DashboardDTO; navigate: Nav
                   </div>
                   <p className="mt-1 truncate text-sm">{c.title}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Next hearing: {c.nextHearingDate ? formatRelativeDay(c.nextHearingDate) : "—"}
+                    {t("dashboard.nextHearingLabel", { date: c.nextHearingDate ? formatRelativeDay(c.nextHearingDate) : "—" })}
                   </p>
                 </button>
               ))}
@@ -326,7 +329,7 @@ function ClientDashboard({ data, navigate }: { data: DashboardDTO; navigate: Nav
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <SectionCard title="Recent Updates" description="Progress notes from your lawyers">
+        <SectionCard title={t("dashboard.recentUpdates")} description={t("dashboard.progressNotes")}>
           {updates.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">—</p>
           ) : (
@@ -353,9 +356,9 @@ function ClientDashboard({ data, navigate }: { data: DashboardDTO; navigate: Nav
           )}
         </SectionCard>
 
-        <SectionCard title="Outstanding Invoices" description="Unpaid & overdue bills">
+        <SectionCard title={t("dashboard.outstandingInvoices")} description={t("dashboard.unpaidOverdue")}>
           {invoices.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">No outstanding invoices</p>
+            <p className="py-6 text-center text-sm text-muted-foreground">{t("dashboard.noOutstandingInvoices")}</p>
           ) : (
             <div className="space-y-2">
               {invoices.map((inv: InvoiceDTO) => (
@@ -363,7 +366,8 @@ function ClientDashboard({ data, navigate }: { data: DashboardDTO; navigate: Nav
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{inv.invoiceNumber}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {inv.caseNumber ? `${inv.caseNumber} · ` : ""}Due {formatDate(inv.dueDate)}
+                      {inv.caseNumber ? `${inv.caseNumber} · ` : ""}
+                      {t("dashboard.due", { date: formatDate(inv.dueDate) })}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -381,28 +385,29 @@ function ClientDashboard({ data, navigate }: { data: DashboardDTO; navigate: Nav
 }
 
 function StaffDashboard({ data, navigate }: { data: DashboardDTO; navigate: NavigateFn }) {
+  const { t } = useLanguage()
   const s = data.stats ?? {}
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard icon={FolderKanban} label="Total Cases" value={num(s.totalCases)} tone="emerald" />
-        <StatCard icon={Gavel} label="Active Cases" value={num(s.activeCases)} tone="amber" />
-        <StatCard icon={CalendarDays} label="Today's Hearings" value={num(s.todaysHearings)} tone="teal" />
-        <StatCard icon={CalendarDays} label="Upcoming Hearings" value={num(s.upcomingHearings)} tone="emerald" />
-        <StatCard icon={Users} label="Total Clients" value={num(s.totalClients)} tone="stone" />
+        <StatCard icon={FolderKanban} label={t("dashboard.totalCases")} value={num(s.totalCases)} tone="emerald" />
+        <StatCard icon={Gavel} label={t("dashboard.activeCases")} value={num(s.activeCases)} tone="amber" />
+        <StatCard icon={CalendarDays} label={t("dashboard.todaysHearings")} value={num(s.todaysHearings)} tone="teal" />
+        <StatCard icon={CalendarDays} label={t("dashboard.upcomingHearings")} value={num(s.upcomingHearings)} tone="emerald" />
+        <StatCard icon={Users} label={t("dashboard.totalClients")} value={num(s.totalClients)} tone="stone" />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <SectionCard title="Today's Hearings" description={formatDate(new Date())}>
-          <HearingList hearings={data.todaysHearings} navigate={navigate} emptyText="No hearings today" />
+        <SectionCard title={t("dashboard.todaysHearings")} description={formatDate(new Date())}>
+          <HearingList hearings={data.todaysHearings} navigate={navigate} emptyText={t("dashboard.noHearingsToday")} />
         </SectionCard>
-        <SectionCard title="Upcoming Hearings" description="Next 7 days">
-          <HearingList hearings={data.upcomingHearings} navigate={navigate} emptyText="No upcoming hearings" showRelativeDay />
+        <SectionCard title={t("dashboard.upcomingHearings")} description={t("dashboard.next7Days")}>
+          <HearingList hearings={data.upcomingHearings} navigate={navigate} emptyText={t("dashboard.noUpcomingHearings")} showRelativeDay />
         </SectionCard>
       </div>
 
-      <SectionCard title="Recent Cases" description="Newest registered matters">
-        <CaseRows cases={data.recentCases} navigate={navigate} emptyText="No cases registered yet" />
+      <SectionCard title={t("dashboard.recentCases")} description={t("dashboard.newestMatters")}>
+        <CaseRows cases={data.recentCases} navigate={navigate} emptyText={t("dashboard.noCasesRegistered")} />
       </SectionCard>
     </div>
   )
@@ -411,14 +416,15 @@ function StaffDashboard({ data, navigate }: { data: DashboardDTO; navigate: Navi
 /* --------------------------------- View --------------------------------- */
 
 export function DashboardView({ user, navigate }: ViewProps) {
+  const { t } = useLanguage()
   const { data, loading, error } = useApiData<DashboardDTO>("/api/dashboard")
 
   if (loading && !data) return <LoadingBlock />
   if (error && !data) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Dashboard" description={`${ROLE_LABELS[user.role] ?? user.role} overview`} />
-        <EmptyState icon={AlertTriangle} title="Could not load your dashboard" description={error} />
+        <PageHeader title={t("nav.dashboard")} description={`${statusLabel(user.role, t)} · ${formatDate(new Date())}`} />
+        <EmptyState icon={AlertTriangle} title={t("dashboard.loadFailed")} description={error} />
       </div>
     )
   }
@@ -444,8 +450,8 @@ export function DashboardView({ user, navigate }: ViewProps) {
       content = (
         <EmptyState
           icon={AlertTriangle}
-          title="Unknown role"
-          description={`Role "${role}" has no dashboard configured.`}
+          title={t("dashboard.unknownRole")}
+          description={t("dashboard.unknownRoleDesc", { role })}
         />
       )
   }
@@ -453,8 +459,11 @@ export function DashboardView({ user, navigate }: ViewProps) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={`Welcome, ${user.name.replace(/^Adv\.\s*/i, "")}`}
-        description={`${ROLE_LABELS[user.role] ?? user.role} dashboard · ${formatDate(new Date())}`}
+        title={t("dashboard.welcome", { name: user.name.replace(/^Adv\.\s*/i, "") })}
+        description={t("dashboard.roleDashboard", {
+          role: statusLabel(user.role, t),
+          date: formatDate(new Date()),
+        })}
       />
       {content}
     </div>

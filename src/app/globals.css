@@ -120,3 +120,8 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Bangla UI: switch to the Bengali webfont when the app language is bn */
+html[lang="bn"] body {
+  font-family: var(--font-bengali), var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}

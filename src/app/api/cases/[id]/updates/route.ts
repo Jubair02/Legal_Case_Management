@@ -2,6 +2,7 @@ import { db } from "@/lib/db"
 import { ApiError, handle, readJson, requireAuth, requireString } from "@/lib/api-helpers"
 import { assertCaseWriteAccess } from "@/lib/permissions"
 import { clientUserId, lawyerUserId, notifyUsers } from "@/lib/notify"
+import { audit } from "@/lib/audit"
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   return handle(async () => {
@@ -40,6 +41,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         }
       )
     }
+
+    await audit(user, "CASE_NOTE_ADD", "Case", id, fullCase?.caseNumber ?? null,
+      update.length > 80 ? `${update.slice(0, 80)}…` : update)
 
     return Response.json(
       {

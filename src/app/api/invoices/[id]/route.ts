@@ -1,6 +1,7 @@
 import { db } from "@/lib/db"
 import { ApiError, handle, optionalString, parseDateOnly, readJson, requireAuth, requireNumber } from "@/lib/api-helpers"
 import { dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
+import { audit, diffFields } from "@/lib/audit"
 
 type InvoiceRow = {
   id: string
@@ -151,6 +152,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
 
     const final = await loadInvoice(id)
+
+    const invoiceDiff = diffFields(
+      inv as unknown as Record<string, unknown>,
+      final as unknown as Record<string, unknown>,
+      ["amount", "dueDate", "description", "billingType", "status"]
+    )
+    const cancelled = final.status === "CANCELLED" && inv.status !== "CANCELLED"
+    await audit(user, "INVOICE_UPDATE", "Invoice", id, inv.invoiceNumber,
+      cancelled ? `Invoice ${inv.invoiceNumber} cancelled` : `Updated invoice ${inv.invoiceNumber}`,
+      invoiceDiff)
+
     return Response.json({ data: invoiceDTO(final, effectiveStatus) })
   })
 }

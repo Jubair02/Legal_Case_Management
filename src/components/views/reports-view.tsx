@@ -19,6 +19,7 @@ import { SectionCard } from "@/components/shared/section-card"
 import { StatCard } from "@/components/shared/stat-card"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { useApiData } from "@/hooks/use-api-data"
+import { useLanguage } from "@/lib/i18n/language"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import type { ReportsDTO, ViewProps } from "@/lib/types"
@@ -45,6 +46,7 @@ function MiniStat({
 }
 
 export default function ReportsView({ user }: ViewProps) {
+  const { t } = useLanguage()
   const isAdmin = user.role === "ADMIN"
   // Only fetch when actually allowed — avoids a guaranteed 403 for other roles.
   const { data, loading, error, refetch } = useApiData<ReportsDTO>(isAdmin ? "/api/reports" : null)
@@ -52,11 +54,11 @@ export default function ReportsView({ user }: ViewProps) {
   if (!isAdmin) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Reports" description="Case & financial reports" />
+        <PageHeader title={t("reports.pageTitle")} description={t("reports.pageSubtitle")} />
         <EmptyState
           icon={ShieldAlert}
-          title="Reports are available to administrators only."
-          description="Ask an administrator if you need an overview of chamber performance."
+          title={t("reports.guardTitle")}
+          description={t("reports.guardDesc")}
         />
       </div>
     )
@@ -67,14 +69,14 @@ export default function ReportsView({ user }: ViewProps) {
   if (error && !data) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Reports" description="Case, financial & hearing analytics" />
+        <PageHeader title={t("reports.pageTitle")} description={t("reports.pageSubtitleError")} />
         <EmptyState
           icon={AlertTriangle}
-          title="Could not load reports"
+          title={t("reports.errLoad")}
           description={error}
           action={
             <Button variant="outline" size="sm" onClick={() => refetch()}>
-              Try again
+              {t("common.retry")}
             </Button>
           }
         />
@@ -92,26 +94,26 @@ export default function ReportsView({ user }: ViewProps) {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Reports" description="Case, financial & hearing analytics for the chamber" />
+      <PageHeader title={t("reports.pageTitle")} description={t("reports.pageSubtitleFull")} />
 
       {/* 1 — Case Reports */}
-      <SectionCard title="Case Reports" description="Distribution of all cases by type, status and lawyer">
+      <SectionCard title={t("reports.caseReports")} description={t("reports.caseReportsDesc")}>
         <div className="space-y-6">
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-            <MiniStat label="Total" value={cr.total} valueClassName="text-emerald-700" />
-            <MiniStat label="Active" value={cr.active} valueClassName="text-emerald-700" />
-            <MiniStat label="Pending" value={cr.pending} valueClassName="text-amber-700" />
-            <MiniStat label="On Hold" value={cr.onHold} valueClassName="text-orange-700" />
-            <MiniStat label="Resolved" value={cr.resolved} valueClassName="text-teal-700" />
-            <MiniStat label="Closed" value={cr.closed} valueClassName="text-stone-600" />
+            <MiniStat label={t("reports.total")} value={cr.total} valueClassName="text-emerald-700" />
+            <MiniStat label={t("status.active")} value={cr.active} valueClassName="text-emerald-700" />
+            <MiniStat label={t("status.pending")} value={cr.pending} valueClassName="text-amber-700" />
+            <MiniStat label={t("status.onHold")} value={cr.onHold} valueClassName="text-orange-700" />
+            <MiniStat label={t("status.resolved")} value={cr.resolved} valueClassName="text-teal-700" />
+            <MiniStat label={t("status.closed")} value={cr.closed} valueClassName="text-stone-600" />
           </div>
 
           <div className="grid gap-6 lg:grid-cols-5">
             <div className="lg:col-span-3">
-              <p className="mb-2 text-sm font-semibold">Cases by Type</p>
+              <p className="mb-2 text-sm font-semibold">{t("reports.byType")}</p>
               {typeData.length === 0 ? (
                 <p className="rounded-lg border border-dashed border-stone-200 py-16 text-center text-sm text-muted-foreground">
-                  No cases registered yet.
+                  {t("reports.noCases")}
                 </p>
               ) : (
                 <ResponsiveContainer width="100%" height={240}>
@@ -130,7 +132,7 @@ export default function ReportsView({ user }: ViewProps) {
                     <YAxis allowDecimals={false} tick={TICK_STYLE} tickLine={false} axisLine={false} width={32} />
                     <Tooltip
                       cursor={{ fill: "rgba(5, 150, 105, 0.06)" }}
-                      formatter={(value) => [String(value), "Cases"]}
+                      formatter={(value) => [String(value), t("reports.tooltipCases")]}
                     />
                     <Bar dataKey="cases" fill="#059669" radius={[4, 4, 0, 0]} maxBarSize={48} />
                   </BarChart>
@@ -139,9 +141,9 @@ export default function ReportsView({ user }: ViewProps) {
             </div>
 
             <div className="lg:col-span-2">
-              <p className="mb-2 text-sm font-semibold">Cases by Status</p>
+              <p className="mb-2 text-sm font-semibold">{t("reports.byStatus")}</p>
               {cr.byStatus.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">No case statuses to show.</p>
+                <p className="py-6 text-center text-sm text-muted-foreground">{t("reports.noStatuses")}</p>
               ) : (
                 <div className="divide-y divide-stone-100 rounded-lg border border-stone-200/80">
                   {cr.byStatus.map((s) => (
@@ -156,18 +158,18 @@ export default function ReportsView({ user }: ViewProps) {
           </div>
 
           <div>
-            <p className="mb-2 text-sm font-semibold">Cases by Lawyer</p>
+            <p className="mb-2 text-sm font-semibold">{t("reports.byLawyer")}</p>
             {cr.byLawyer.length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">No lawyer assignments yet.</p>
+              <p className="py-6 text-center text-sm text-muted-foreground">{t("reports.noLawyers")}</p>
             ) : (
               <div className="overflow-hidden rounded-lg border border-stone-200/80">
                 <Table>
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
-                      <TableHead>Lawyer</TableHead>
-                      <TableHead className="text-right">Total</TableHead>
-                      <TableHead className="text-right">Active</TableHead>
-                      <TableHead className="text-right">Closed</TableHead>
+                      <TableHead>{t("reports.lawyer")}</TableHead>
+                      <TableHead className="text-right">{t("reports.total")}</TableHead>
+                      <TableHead className="text-right">{t("status.active")}</TableHead>
+                      <TableHead className="text-right">{t("status.closed")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -188,37 +190,37 @@ export default function ReportsView({ user }: ViewProps) {
       </SectionCard>
 
       {/* 2 — Financial Reports */}
-      <SectionCard title="Financial Reports" description="Invoicing vs collections across the chamber">
+      <SectionCard title={t("reports.financialReports")} description={t("reports.financialReportsDesc")}>
         <div className="space-y-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <StatCard
               icon={Wallet}
-              label="Total Invoiced"
+              label={t("reports.totalInvoiced")}
               value={formatCurrency(fin.totalInvoiced)}
-              sub={`${fin.invoiceCount} invoices`}
+              sub={t("reports.invoiceCountSub", { count: fin.invoiceCount })}
               tone="emerald"
             />
             <StatCard
               icon={Banknote}
-              label="Total Collected"
+              label={t("reports.totalCollected")}
               value={formatCurrency(fin.totalCollected)}
-              sub={`${fin.paymentCount} payments`}
+              sub={t("reports.paymentCountSub", { count: fin.paymentCount })}
               tone="teal"
             />
             <StatCard
               icon={TrendingUp}
-              label="Outstanding"
+              label={t("reports.outstanding")}
               value={formatCurrency(fin.outstanding)}
-              sub="Unpaid & partial balances"
+              sub={t("reports.outstandingSub")}
               tone="rose"
             />
           </div>
 
           <div>
-            <p className="mb-2 text-sm font-semibold">Collections by Payment Method</p>
+            <p className="mb-2 text-sm font-semibold">{t("reports.byMethod")}</p>
             {methodData.length === 0 ? (
               <p className="rounded-lg border border-dashed border-stone-200 py-16 text-center text-sm text-muted-foreground">
-                No payments recorded yet.
+                {t("reports.noPayments")}
               </p>
             ) : (
               <ResponsiveContainer width="100%" height={240}>
@@ -237,7 +239,7 @@ export default function ReportsView({ user }: ViewProps) {
                   <YAxis tick={TICK_STYLE} tickLine={false} axisLine={false} width={72} />
                   <Tooltip
                     cursor={{ fill: "rgba(217, 119, 6, 0.06)" }}
-                    formatter={(value) => [formatCurrency(Number(value)), "Collected"]}
+                    formatter={(value) => [formatCurrency(Number(value)), t("reports.tooltipCollected")]}
                   />
                   <Bar dataKey="amount" fill="#d97706" radius={[4, 4, 0, 0]} maxBarSize={48} />
                 </BarChart>
@@ -248,13 +250,13 @@ export default function ReportsView({ user }: ViewProps) {
       </SectionCard>
 
       {/* 3 — Hearing Reports */}
-      <SectionCard title="Hearing Reports" description="Hearing volume & outcomes">
+      <SectionCard title={t("reports.hearingReports")} description={t("reports.hearingReportsDesc")}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <StatCard icon={CalendarDays} label="Today's Hearings" value={hr.todays} tone="amber" />
-          <StatCard icon={CalendarDays} label="Upcoming (7 days)" value={hr.upcoming7} tone="teal" />
-          <StatCard icon={CheckCircle2} label="Completed" value={hr.completed} tone="emerald" />
-          <StatCard icon={Clock} label="Adjourned" value={hr.adjourned} tone="stone" />
-          <StatCard icon={CalendarDays} label="This Month" value={hr.thisMonth} tone="gold" />
+          <StatCard icon={CalendarDays} label={t("reports.todaysHearings")} value={hr.todays} tone="amber" />
+          <StatCard icon={CalendarDays} label={t("reports.upcoming7")} value={hr.upcoming7} tone="teal" />
+          <StatCard icon={CheckCircle2} label={t("status.completed")} value={hr.completed} tone="emerald" />
+          <StatCard icon={Clock} label={t("status.adjourned")} value={hr.adjourned} tone="stone" />
+          <StatCard icon={CalendarDays} label={t("reports.thisMonth")} value={hr.thisMonth} tone="gold" />
         </div>
       </SectionCard>
     </div>

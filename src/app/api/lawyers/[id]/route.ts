@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireNumber, requireString } from "@/lib/api-helpers"
 import { caseScopeWhere } from "@/lib/permissions"
 import { EMAIL_RE } from "@/lib/validation"
+import { audit, diffFields } from "@/lib/audit"
 
 const ACTIVE_CASE_STATUSES = ["ACTIVE", "PENDING", "ON_HOLD"]
 
@@ -74,7 +75,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 /** PATCH /api/lawyers/[id] — ADMIN only. */
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   return handle(async () => {
-    await requireAuth(["ADMIN"])
+    const user = await requireAuth(["ADMIN"])
     const { id } = await params
     const body = await readJson<Record<string, unknown>>(request)
 
@@ -149,6 +150,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const activeCases = await db.case.count({
       where: { lawyerId: id, status: { in: ACTIVE_CASE_STATUSES } },
     })
+
+    const lawyerDiff = diffFields(
+      lawyer as unknown as Record<string, unknown>,
+      updated as unknown as Record<string, unknown>,
+      ["name", "phone", "email", "barCouncilId", "specialization", "chamberName", "experience", "status"]
+    )
+    await audit(user, "LAWYER_UPDATE", "Lawyer", id, lawyer.name,
+      `Updated lawyer ${lawyer.name}`, lawyerDiff)
 
     return ok({
       id: updated!.id,
