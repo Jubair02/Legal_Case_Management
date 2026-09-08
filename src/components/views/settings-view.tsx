@@ -501,7 +501,7 @@ const TECH_STACK = [
   "TypeScript",
   "Tailwind CSS",
   "shadcn/ui",
-  "Prisma + SQLite",
+  "Prisma + PostgreSQL",
   "JWT session auth",
   "Local file storage",
 ]
