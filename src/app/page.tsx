@@ -5,7 +5,7 @@ import { Loader2, Scale } from "lucide-react"
 
 import { LoginScreen } from "@/components/auth/login-screen"
 import { AppShell } from "@/components/layout/app-shell"
-import { apiGet, apiSend, SESSION_EXPIRED_EVENT } from "@/lib/api-client"
+import { apiGet, apiSend, clearStoredToken, SESSION_EXPIRED_EVENT } from "@/lib/api-client"
 import type { SessionUser } from "@/lib/types"
 
 export default function Home() {
@@ -65,6 +65,7 @@ export default function Home() {
         } catch {
           /* ignore — clear locally regardless */
         }
+        clearStoredToken()
         setUser(null)
       }}
     />

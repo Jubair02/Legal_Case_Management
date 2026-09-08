@@ -3,6 +3,64 @@
 // `{ error: { message, code } }` on failure.
 
 /**
+ * Session token fallback storage.
+ *
+ * The httpOnly session cookie is the primary auth carrier, but embedding
+ * contexts (the sandbox preview panel renders the app inside a cross-site
+ * iframe) block SameSite=Lax cookies entirely — login would succeed yet every
+ * follow-up request would arrive unauthenticated. The login response therefore
+ * also carries a token which is stored here and attached as
+ * `Authorization: Bearer` on every request. When cookies work, both are sent
+ * and the server prefers the cookie.
+ */
+const TOKEN_STORAGE_KEY = "lcm_session_token"
+
+export function getStoredToken(): string | null {
+  if (typeof window === "undefined") return null
+  try {
+    return window.localStorage.getItem(TOKEN_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
+
+function setStoredToken(token: string): void {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.setItem(TOKEN_STORAGE_KEY, token)
+  } catch {
+    /* storage unavailable (private mode) — cookie-only mode */
+  }
+}
+
+export function clearStoredToken(): void {
+  if (typeof window === "undefined") return
+  try {
+    window.localStorage.removeItem(TOKEN_STORAGE_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Persist a token arriving inside any `{ data: { token } }` response. */
+function captureToken(data: unknown): void {
+  if (
+    data &&
+    typeof data === "object" &&
+    typeof (data as { token?: unknown }).token === "string" &&
+    (data as { token: string }).token.length > 0
+  ) {
+    setStoredToken((data as { token: string }).token)
+  }
+}
+
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  const token = getStoredToken()
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+  return extra ? { ...headers, ...extra } : headers
+}
+
+/**
  * Fired whenever any API call returns 401 so the app shell can reset to the
  * login screen instead of leaving the user stranded on a dead session.
  */
@@ -10,6 +68,7 @@ export const SESSION_EXPIRED_EVENT = "lcm:session-expired"
 
 function notifySessionExpired() {
   if (typeof window !== "undefined") {
+    clearStoredToken()
     window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT))
   }
 }
@@ -52,7 +111,9 @@ async function throwApiError(res: Response): Promise<never> {
 async function readData<T>(res: Response): Promise<T> {
   try {
     const json = (await res.json()) as { data?: T } | null
-    return (json ? json.data : null) as T
+    const data = (json ? json.data : null) as T
+    captureToken(data)
+    return data
   } catch {
     return null as T
   }
@@ -63,6 +124,7 @@ export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(path, {
     method: "GET",
     credentials: "same-origin",
+    headers: authHeaders(),
   })
   if (!res.ok) await throwApiError(res)
   return readData<T>(res)
@@ -77,7 +139,7 @@ export async function apiSend<T>(
   const res = await fetch(path, {
     method,
     credentials: "same-origin",
-    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    headers: authHeaders(body !== undefined ? { "Content-Type": "application/json" } : undefined),
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) await throwApiError(res)
@@ -89,6 +151,7 @@ export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
   const res = await fetch(path, {
     method: "POST",
     credentials: "same-origin",
+    headers: authHeaders(),
     body: form,
   })
   if (!res.ok) await throwApiError(res)

@@ -48,6 +48,8 @@ export async function POST(request: Request) {
     })
     await setSessionCookie(token)
 
-    return ok({ ok: true })
+    // New token too: sessionVersion was bumped, so any Bearer token the client
+    // kept from login would otherwise stop working right after the change.
+    return ok({ ok: true, token })
   })
 }

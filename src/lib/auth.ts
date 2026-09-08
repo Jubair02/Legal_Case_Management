@@ -1,5 +1,5 @@
 import { SignJWT, jwtVerify } from "jose"
-import { cookies } from "next/headers"
+import { cookies, headers } from "next/headers"
 import { db } from "@/lib/db"
 
 function getSecret(): Uint8Array {
@@ -53,6 +53,25 @@ export async function verifySessionToken(token: string): Promise<SessionPayload 
   }
 }
 
+/**
+ * Read the session token for the current request. The httpOnly cookie is the
+ * primary carrier; an `Authorization: Bearer` header is accepted as a fallback
+ * for embedding contexts (e.g. the sandbox preview panel) where the browser
+ * blocks SameSite=Lax cookies in cross-site iframes.
+ */
+async function getRequestToken(): Promise<string | null> {
+  const cookieStore = await cookies()
+  const cookieToken = cookieStore.get(SESSION_COOKIE)?.value
+  if (cookieToken) return cookieToken
+  const headerStore = await headers()
+  const authorization = headerStore.get("authorization")
+  if (authorization?.toLowerCase().startsWith("bearer ")) {
+    const token = authorization.slice(7).trim()
+    return token.length > 0 ? token : null
+  }
+  return null
+}
+
 export async function setSessionCookie(token: string) {
   const cookieStore = await cookies()
   cookieStore.set(SESSION_COOKIE, token, {
@@ -86,8 +105,7 @@ export interface SessionUser {
  * Returns null when not authenticated.
  */
 export async function getSessionUser(): Promise<SessionUser | null> {
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE)?.value
+  const token = await getRequestToken()
   if (!token) return null
   const payload = await verifySessionToken(token)
   if (!payload) return null

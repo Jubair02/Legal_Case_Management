@@ -53,6 +53,10 @@ export async function POST(request: Request) {
     })
     await setSessionCookie(token)
 
+    // The token is returned in the body so the SPA can fall back to an
+    // `Authorization: Bearer` header when cookies are unavailable (e.g. the
+    // preview panel embeds the app in a cross-site iframe that blocks
+    // SameSite=Lax cookies). The httpOnly cookie is still the primary carrier.
     return ok({
       id: user.id,
       name: user.name,
@@ -62,6 +66,7 @@ export async function POST(request: Request) {
       status: user.status,
       lawyerProfile: user.lawyerProfile,
       clientProfile: user.clientProfile,
+      token,
     })
   })
 }

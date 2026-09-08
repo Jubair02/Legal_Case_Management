@@ -453,3 +453,23 @@ Stage Summary:
 - Product verified end-to-end healthy after QA-FIX-1 + QA-FIX-2; all previously fixed issues re-confirmed holding (RBAC scoping, hearing-field stripping, payment integrity, session revocation, a11y rows).
 - Remaining open items are enhancement-grade, not defects: git-tracked .env/db (rotate+untrack), admin-reset session revocation, URL deep-linking, code-splitting/recharts for CLIENT, declared-stack adoption (TanStack Query/RHF/zod), pagination, security headers, Float money, Bangla webfont, demo-creds-in-bundle.
 - Comprehensive final report (architecture, features×roles, workflows, security, perf, prioritized findings, roadmap) delivered to user.
+
+---
+Task ID: LOGIN-FIX-1
+Agent: Z.ai Code (main, hotfix)
+Task: Fix user-reported bug — "login successful but couldn't go in site" (login POST 200 then every API call 401, bounced back to login screen).
+
+Work Log:
+- Diagnosed via dev.log (login 200 → dashboard 401 → GET / bounce) + code + live repro: the session cookie is SameSite=Lax; the Preview Panel embeds the app in a CROSS-SITE iframe, where browsers block Lax cookies entirely — Set-Cookie is dropped, follow-up requests carry no session → 401 → SESSION_EXPIRED_EVENT resets to login. Verified app healthy on localhost (fresh browser login worked) — failure was specific to the embedded context.
+- Fix (hybrid session carrier):
+  - lib/auth.ts: new getRequestToken() — cookie first, then Authorization: Bearer header (via next/headers headers(); no route signatures changed; all 25 routes inherit Bearer support through requireAuth).
+  - auth/login: response body now includes the JWT (cookie still set).
+  - auth/change-password: returns a FRESH token (sessionVersion was bumped — old stored token would 401 otherwise).
+  - lib/api-client.ts: localStorage token store (lcm_session_token); auto-captures any data.token response (login/change-password); attaches Authorization header on apiGet/apiSend/apiUpload; clears token on any 401 (notifySessionExpired) and via exported clearStoredToken() on logout (page.tsx).
+- Environment repair: .env had lost AUTH_SECRET (only DATABASE_URL remained — likely sandbox reset); regenerated strong 48-byte-hex secret + wrote proper .env.example (was empty).
+- Verification: curl — Bearer-only dashboard 200 / me 200 / no-auth 401 / cookie flow unchanged 200. Browser cross-site repro (wrapper page on http://127.0.0.1:3999 iframing http://localhost:3000 = cross-site for cookies): login inside iframe → dashboard, All Cases, Billing all render with live data via Bearer (Lax cookie deterministically blocked in this context). Direct (non-iframe) login + logout: works, token cleared on logout. bun run lint clean; dev.log clean; single next-server (pid 1073) on :3000; embed test server killed.
+
+Stage Summary:
+- Login now works in ALL contexts: direct access (cookie), embedded iframe preview (Bearer fallback), cookie+token both present (server prefers cookie).
+- Root cause was never credentials or the login handler — it was browser cookie policy in the preview's cross-site iframe.
+- Session semantics unchanged: 7-day JWT, sessionVersion revocation, httpOnly cookie primary.
