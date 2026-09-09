@@ -1,5 +1,5 @@
 import { db } from "@/lib/db"
-import { ApiError, handle, optionalString, parseDateOnly, readJson, requireAuth, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
+import { ApiError, handle, okPaged, optionalEnum, optionalString, parseDateOnly, parsePagination, readJson, requireAuth, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
 import { caseScopeWhere } from "@/lib/permissions"
 import { CASE_PRIORITIES, CASE_STATUSES, CASE_TYPES } from "@/lib/constants"
 import { adminIds, clientUserId, lawyerUserId, notifyUsers } from "@/lib/notify"
@@ -96,16 +96,22 @@ export async function GET(request: Request) {
     }
 
     const where = caseScopeWhere(user, extra)
-    const rows = await db.case.findMany({
-      where: where as never,
-      include: {
-        client: { select: { id: true, name: true, phone: true } },
-        lawyer: { select: { id: true, name: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    })
+    const page = parsePagination(searchParams)
+    const [rows, total] = await Promise.all([
+      db.case.findMany({
+        where: where as never,
+        include: {
+          client: { select: { id: true, name: true, phone: true } },
+          lawyer: { select: { id: true, name: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        take: page.take,
+        skip: page.skip,
+      }),
+      db.case.count({ where: where as never }),
+    ])
 
-    return Response.json({ data: await buildCaseListDTOs(rows as CaseRow[]) })
+    return okPaged(await buildCaseListDTOs(rows as CaseRow[]), total, page)
   })
 }
 
@@ -124,14 +130,8 @@ export async function POST(request: Request) {
     const description = optionalString(body.description)
     const filingDate = parseDateOnly(body.filingDate)
 
-    const status = optionalString(body.status) ?? "ACTIVE"
-    if (!CASE_STATUSES.includes(status as never)) {
-      throw new ApiError("Invalid case status.", 422)
-    }
-    const priority = optionalString(body.priority) ?? "MEDIUM"
-    if (!CASE_PRIORITIES.includes(priority as never)) {
-      throw new ApiError("Invalid case priority.", 422)
-    }
+    const status = optionalEnum(body.status, CASE_STATUSES, "status") ?? "ACTIVE"
+    const priority = optionalEnum(body.priority, CASE_PRIORITIES, "priority") ?? "MEDIUM"
     if (!CASE_TYPES.includes(type as never)) {
       throw new ApiError("Invalid case type.", 422)
     }

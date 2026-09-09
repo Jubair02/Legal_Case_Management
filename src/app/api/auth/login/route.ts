@@ -4,6 +4,7 @@ import { setSessionCookie, signSession } from "@/lib/auth"
 import { DUMMY_HASH, MAX_PASSWORD_LENGTH, verifyPassword } from "@/lib/password"
 import { isRateLimited, recordFailedAttempt, clearAttempts } from "@/lib/rate-limit"
 import { audit } from "@/lib/audit"
+import { BEARER_FALLBACK_ENABLED } from "@/lib/bearer-fallback"
 
 export async function POST(request: Request) {
   return handle(async () => {
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
     }
 
     // Per-IP+email brute-force protection.
-    if (isRateLimited(request, email)) {
+    if (await isRateLimited(request, email)) {
       throw new ApiError(
         "Too many failed sign-in attempts. Please wait a few minutes and try again.",
         429,
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
     const passwordOk = verifyPassword(password, storedHash)
 
     if (!user || !passwordOk || user.status !== "ACTIVE") {
-      if (!user || user.status === "ACTIVE") recordFailedAttempt(request, email)
+      if (!user || user.status === "ACTIVE") await recordFailedAttempt(request, email)
       // Best-effort audit of the wrong-password path only. Unknown emails stay
       // unaudited so no new account-existence signal is added beyond the
       // (already rate-limited) timing equalization above.
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
       throw new ApiError("Invalid email or password.", 401)
     }
 
-    clearAttempts(request, email)
+    await clearAttempts(request, email)
 
     const token = await signSession({
       sub: user.id,
@@ -62,10 +63,9 @@ export async function POST(request: Request) {
 
     await audit(user, "AUTH_LOGIN", "Auth", user.id, user.email, "Signed in")
 
-    // The token is returned in the body so the SPA can fall back to an
-    // `Authorization: Bearer` header when cookies are unavailable (e.g. the
-    // preview panel embeds the app in a cross-site iframe that blocks
-    // SameSite=Lax cookies). The httpOnly cookie is still the primary carrier.
+    // The httpOnly cookie is the carrier. The token is echoed in the body
+    // only when the Bearer fallback is explicitly enabled for a cookie-blocked
+    // embedding context — otherwise it never leaves the cookie.
     return ok({
       id: user.id,
       name: user.name,
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
       status: user.status,
       lawyerProfile: user.lawyerProfile,
       clientProfile: user.clientProfile,
-      token,
+      ...(BEARER_FALLBACK_ENABLED ? { token } : {}),
     })
   })
 }

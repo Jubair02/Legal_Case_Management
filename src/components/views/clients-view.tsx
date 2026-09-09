@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { toast } from "sonner"
 import {
   Cloud,
@@ -60,6 +60,7 @@ import {
   invoiceStatusStyles,
 } from "@/lib/utils"
 import { isValidEmail } from "@/lib/validation"
+import { useResetOnOpen } from "@/lib/use-reset-on-open"
 
 type NavigateFn = (view: ViewKey, params?: ViewParams) => void
 
@@ -346,8 +347,7 @@ export function ClientFormDialog({ open, onOpenChange, client, onSaved }: Client
   const [password, setPassword] = useState("")
   const [pending, setPending] = useState(false)
 
-  useEffect(() => {
-    if (!open) return
+  useResetOnOpen(open ? (client?.id ?? "new") : null, () => {
     setName(client?.name ?? "")
     setPhone(client?.phone ?? "")
     setEmail(client?.email ?? "")
@@ -357,7 +357,7 @@ export function ClientFormDialog({ open, onOpenChange, client, onSaved }: Client
     setPortal(false)
     setPassword("")
     setPending(false)
-  }, [open, client])
+  })
 
   const submit = async () => {
     if (!name.trim()) {

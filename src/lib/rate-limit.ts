@@ -1,31 +1,25 @@
+import { db } from "@/lib/db"
+
 /**
- * Minimal in-memory rate limiter for failed login attempts.
- * Keyed by client IP + email. Slots auto-expire; no external deps.
+ * Brute-force protection for failed sign-ins.
  *
- * NOTE: this protects a single process. Behind multiple instances you would
- * swap the Map for a shared store — for this MVP one process is the norm.
+ * Buckets live in the database (LoginAttempt) rather than process memory, so
+ * the limit is shared by every instance. With an in-memory Map each replica
+ * kept its own counter, which multiplied the real attempt allowance by the
+ * number of instances and reset on every deploy.
+ *
+ * Two buckets are kept per attempt:
+ *  - IP + email, the normal case;
+ *  - email alone, a backstop that cannot be bypassed by rotating the
+ *    spoofable X-Forwarded-For header.
  */
 
-type Attempt = { count: number; firstAt: number; blockedUntil?: number }
-
-const attempts = new Map<string, Attempt>()
-
-const WINDOW_MS = 10 * 60 * 1000 // 10 minutes
+const WINDOW_MS = 10 * 60 * 1000 // attempts older than this start a fresh count
 const MAX_ATTEMPTS = 8
-const BLOCK_MS = 5 * 60 * 1000 // block for 5 minutes after too many failures
+const BLOCK_MS = 5 * 60 * 1000 // lockout once the ceiling is hit
 
-// Periodically evict stale entries so the map cannot grow unbounded.
-const SWEEP_INTERVAL_MS = 5 * 60 * 1000
-let lastSweep = Date.now()
-
-function sweep(now: number) {
-  if (now - lastSweep < SWEEP_INTERVAL_MS) return
-  lastSweep = now
-  for (const [key, a] of attempts) {
-    const expired = now - a.firstAt > WINDOW_MS && (!a.blockedUntil || now > a.blockedUntil)
-    if (expired) attempts.delete(key)
-  }
-}
+/** Rows untouched for this long are prunable (see pruneLoginAttempts). */
+export const ATTEMPT_RETENTION_MS = WINDOW_MS + BLOCK_MS
 
 function clientIp(request: Request): string {
   const fwd = request.headers.get("x-forwarded-for")
@@ -33,52 +27,62 @@ function clientIp(request: Request): string {
   return request.headers.get("x-real-ip") || "unknown"
 }
 
-function keyFor(request: Request, email: string): string {
-  return `${clientIp(request)}::${email}`
+function bucketKeys(request: Request, email: string): string[] {
+  return [`${clientIp(request)}::${email}`, `email::${email}`]
 }
 
-/**
- * Email-only bucket: a backstop that cannot be bypassed by rotating the
- * spoofable X-Forwarded-For header — no matter which IP the attempts appear
- * to come from, a single account locks after MAX_ATTEMPTS failures.
- */
-function emailKey(email: string): string {
-  return `email::${email}`
+/** True when either bucket is currently locked out. */
+export async function isRateLimited(request: Request, email: string): Promise<boolean> {
+  const now = new Date()
+  const rows = await db.loginAttempt.findMany({
+    where: { key: { in: bucketKeys(request, email) }, blockedUntil: { gt: now } },
+    select: { key: true },
+  })
+  return rows.length > 0
 }
 
-function isBlocked(key: string, now: number): boolean {
-  const a = attempts.get(key)
-  if (!a) return false
-  if (a.blockedUntil && now < a.blockedUntil) return true
-  if (a.blockedUntil && now >= a.blockedUntil) attempts.delete(key)
-  return false
-}
-
-export function isRateLimited(request: Request, email: string): boolean {
+/** Count one failure against both buckets, locking out at the ceiling. */
+export async function recordFailedAttempt(request: Request, email: string): Promise<void> {
   const now = Date.now()
-  sweep(now)
-  return isBlocked(keyFor(request, email), now) || isBlocked(emailKey(email), now)
-}
+  const windowStart = new Date(now - WINDOW_MS)
 
-function recordAttempt(key: string, now: number): void {
-  const a = attempts.get(key)
-  if (!a || now - a.firstAt > WINDOW_MS) {
-    attempts.set(key, { count: 1, firstAt: now })
-    return
+  for (const key of bucketKeys(request, email)) {
+    const existing = await db.loginAttempt.findUnique({ where: { key } })
+
+    // No bucket, or the window has rolled over — start counting again.
+    if (!existing || existing.firstAt < windowStart) {
+      await db.loginAttempt.upsert({
+        where: { key },
+        create: { key, count: 1, firstAt: new Date(now) },
+        update: { count: 1, firstAt: new Date(now), blockedUntil: null },
+      })
+      continue
+    }
+
+    const count = existing.count + 1
+    await db.loginAttempt.update({
+      where: { key },
+      data: {
+        count,
+        blockedUntil: count >= MAX_ATTEMPTS ? new Date(now + BLOCK_MS) : existing.blockedUntil,
+      },
+    })
   }
-  a.count += 1
-  if (a.count >= MAX_ATTEMPTS) {
-    a.blockedUntil = now + BLOCK_MS
+}
+
+/** Successful sign-in clears the buckets. */
+export async function clearAttempts(request: Request, email: string): Promise<void> {
+  await db.loginAttempt.deleteMany({ where: { key: { in: bucketKeys(request, email) } } })
+}
+
+/** Drop buckets that can no longer block anyone. Called from the sweep. */
+export async function pruneLoginAttempts(): Promise<number> {
+  try {
+    const { count } = await db.loginAttempt.deleteMany({
+      where: { updatedAt: { lt: new Date(Date.now() - ATTEMPT_RETENTION_MS) } },
+    })
+    return count
+  } catch {
+    return 0
   }
-}
-
-export function recordFailedAttempt(request: Request, email: string): void {
-  const now = Date.now()
-  recordAttempt(keyFor(request, email), now)
-  recordAttempt(emailKey(email), now)
-}
-
-export function clearAttempts(request: Request, email: string): void {
-  attempts.delete(keyFor(request, email))
-  attempts.delete(emailKey(email))
 }

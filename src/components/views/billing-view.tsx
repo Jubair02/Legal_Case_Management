@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import {
   AlertTriangle,
   Ban,
@@ -55,6 +55,7 @@ import { apiSend } from "@/lib/api-client"
 import { BILLING_TYPES, INVOICE_STATUSES, PAYMENT_METHODS } from "@/lib/constants"
 import { statusLabel, useLanguage, type TranslateFn } from "@/lib/i18n/language"
 import type { CaseListDTO, ClientDTO, InvoiceDTO, PaymentDTO, ViewKey, ViewParams, ViewProps } from "@/lib/types"
+import { useResetOnOpen } from "@/lib/use-reset-on-open"
 import { cn, formatCurrency, formatDate, invoiceStatusStyles, toDateInputValue } from "@/lib/utils"
 
 type NavigateFn = (view: ViewKey, params?: ViewParams) => void
@@ -150,15 +151,13 @@ function RecordPaymentDialog({
 
   const remaining = invoice ? Math.max(0, num(invoice.amount) - num(invoice.paidAmount)) : 0
 
-  useEffect(() => {
-    if (open && invoice) {
-      setAmount(String(Math.max(0, num(invoice.amount) - num(invoice.paidAmount))))
-      setMethod(PAYMENT_METHODS[0])
-      setPaymentDate(toDateInputValue(new Date()))
-      setReference("")
-      setNotes("")
-    }
-  }, [open, invoice])
+  useResetOnOpen(open && invoice ? invoice.id : null, () => {
+    setAmount(String(Math.max(0, num(invoice!.amount) - num(invoice!.paidAmount))))
+    setMethod(PAYMENT_METHODS[0])
+    setPaymentDate(toDateInputValue(new Date()))
+    setReference("")
+    setNotes("")
+  })
 
   const submit = async () => {
     if (!invoice) return
@@ -442,16 +441,14 @@ function NewInvoiceDialog({
   const [pending, setPending] = useState(false)
   const { t } = useLanguage()
 
-  useEffect(() => {
-    if (open) {
-      setClientId("")
-      setCaseId(NO_CASE)
-      setBillingType(BILLING_TYPES[0])
-      setDescription("")
-      setAmount("")
-      setDueDate("")
-    }
-  }, [open])
+  useResetOnOpen(open ? "new" : null, () => {
+    setClientId("")
+    setCaseId(NO_CASE)
+    setBillingType(BILLING_TYPES[0])
+    setDescription("")
+    setAmount("")
+    setDueDate("")
+  })
 
   const onCaseChange = (value: string) => {
     setCaseId(value)
@@ -717,7 +714,7 @@ function InvoicesTab({
             <SelectItem value={ALL}>All statuses</SelectItem>
             {INVOICE_STATUSES.map((s) => (
               <SelectItem key={s} value={s}>
-                {INVOICE_STATUS_LABELS[s]}
+                {invoiceStatusStyles[s]?.label ?? s}
               </SelectItem>
             ))}
           </SelectContent>

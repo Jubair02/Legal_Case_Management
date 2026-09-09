@@ -1,3 +1,4 @@
+import type { $Enums } from "@prisma/client"
 import { db } from "@/lib/db"
 import { ApiError, handle, ok, requireAuth } from "@/lib/api-helpers"
 import { dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
@@ -33,7 +34,7 @@ export async function DELETE(
       await tx.payment.delete({ where: { id } })
 
       const inv = payment.invoice
-      let status: string
+      let status: $Enums.InvoiceStatus
       if (inv.status === "CANCELLED") {
         status = "CANCELLED"
       } else {

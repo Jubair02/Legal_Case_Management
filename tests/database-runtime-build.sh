@@ -2,74 +2,91 @@
 
 set -euo pipefail
 
+# 项目已从 SQLite 迁移到 PostgreSQL：构建步骤不再打包数据库文件，
+# 而是校验连接串并同步 schema。
+# The project moved from SQLite to PostgreSQL: the build step no longer
+# packages a database file, it validates the connection string and syncs the
+# schema. These tests cover that contract.
+
 SCRIPT_DIR="$(cd "$(dirname "$0")/../.zscripts" && pwd)"
 TEST_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TEST_ROOT"' EXIT
 
 FAKE_BIN="$TEST_ROOT/bin"
 mkdir -p "$FAKE_BIN"
-cat >"$FAKE_BIN/bun" <<'EOF'
+
+# Stub npm so `npm run db:push` records the URL it would have pushed to.
+cat >"$FAKE_BIN/npm" <<'EOF'
 #!/bin/bash
 set -euo pipefail
 
 if [ "$#" -ne 2 ] || [ "$1" != "run" ] || [ "$2" != "db:push" ]; then
-    echo "unexpected bun invocation: $*" >&2
+    echo "unexpected npm invocation: $*" >&2
     exit 1
 fi
 
 case "${DATABASE_URL:-}" in
-    file:*) db_path="${DATABASE_URL#file:}" ;;
+    postgres://*|postgresql://*) ;;
     *)
-        echo "DATABASE_URL must be an absolute SQLite file URL" >&2
+        echo "DATABASE_URL must be a PostgreSQL connection string" >&2
         exit 1
         ;;
 esac
 
-case "$db_path" in
-    /*) ;;
-    *)
-        echo "database path must be absolute: $db_path" >&2
-        exit 1
-        ;;
-esac
-
-mkdir -p "$(dirname "$db_path")"
-if [ ! -f "$db_path" ]; then
-    printf 'initialized\n' >"$db_path"
-fi
 printf '%s\n' "$DATABASE_URL" >>"${DB_PUSH_CALLS:?}"
 EOF
+chmod +x "$FAKE_BIN/npm"
+
+# Hide any real bun so the script takes the npm path deterministically.
+cat >"$FAKE_BIN/bun" <<'EOF'
+#!/bin/bash
+echo "bun should not be used when unavailable" >&2
+exit 127
+EOF
 chmod +x "$FAKE_BIN/bun"
+rm "$FAKE_BIN/bun"
 
 export PATH="$FAKE_BIN:$PATH"
 export DB_PUSH_CALLS="$TEST_ROOT/db-push-calls"
+: >"$DB_PUSH_CALLS"
 
-# 没有 Preview 数据库时，应只在部署产物中初始化空库，不修改项目目录。
-EMPTY_PROJECT="$TEST_ROOT/empty-project"
-EMPTY_BUILD="$TEST_ROOT/empty-build"
-mkdir -p "$EMPTY_PROJECT"
+PROJECT="$TEST_ROOT/project"
+BUILD="$TEST_ROOT/build"
+mkdir -p "$PROJECT"
 
-PROJECT_DIR="$EMPTY_PROJECT" BUILD_DIR="$EMPTY_BUILD" \
-    bash "$SCRIPT_DIR/database-runtime-build.sh"
+PG_URL="postgresql://user:pass@db.example.com/neondb?sslmode=require"
 
-test -f "$EMPTY_BUILD/db/custom.db"
-test "$(cat "$EMPTY_BUILD/db/custom.db")" = "initialized"
-test ! -e "$EMPTY_PROJECT/db/custom.db"
+# 1. 正常路径：同步 schema，并为上传创建目录。
+PROJECT_DIR="$PROJECT" BUILD_DIR="$BUILD" DATABASE_URL="$PG_URL" \
+    bash "$SCRIPT_DIR/database-runtime-build.sh" >/dev/null
 
-# 有 Preview 数据库时，应保留数据和同目录文件，再对产物执行 schema 同步。
-EXISTING_PROJECT="$TEST_ROOT/existing-project"
-EXISTING_BUILD="$TEST_ROOT/existing-build"
-mkdir -p "$EXISTING_PROJECT/db"
-printf 'preview-data\n' >"$EXISTING_PROJECT/db/custom.db"
-printf 'sidecar\n' >"$EXISTING_PROJECT/db/README.txt"
+grep -Fx "$PG_URL" "$DB_PUSH_CALLS" >/dev/null
+test -d "$BUILD/uploads"
+test ! -e "$BUILD/db"          # 不再打包数据库文件 / no packaged database
+test ! -e "$PROJECT/db"        # 项目目录保持不变 / project dir untouched
 
-PROJECT_DIR="$EXISTING_PROJECT" BUILD_DIR="$EXISTING_BUILD" \
-    bash "$SCRIPT_DIR/database-runtime-build.sh"
+# 2. 缺少 DATABASE_URL 必须失败。
+if PROJECT_DIR="$PROJECT" BUILD_DIR="$TEST_ROOT/b2" \
+    bash "$SCRIPT_DIR/database-runtime-build.sh" >/dev/null 2>&1; then
+    echo "expected failure when DATABASE_URL is unset" >&2
+    exit 1
+fi
 
-test "$(cat "$EXISTING_BUILD/db/custom.db")" = "preview-data"
-test "$(cat "$EXISTING_BUILD/db/README.txt")" = "sidecar"
-test "$(wc -l <"$DB_PUSH_CALLS" | tr -d ' ')" = "2"
-grep -Fx "file:$EMPTY_BUILD/db/custom.db" "$DB_PUSH_CALLS"
-grep -Fx "file:$EXISTING_BUILD/db/custom.db" "$DB_PUSH_CALLS"
+# 3. 残留的 SQLite 连接串必须被拒绝，而不是静默建库。
+if PROJECT_DIR="$PROJECT" BUILD_DIR="$TEST_ROOT/b3" DATABASE_URL="file:/app/db/custom.db" \
+    bash "$SCRIPT_DIR/database-runtime-build.sh" >/dev/null 2>&1; then
+    echo "expected failure for a SQLite DATABASE_URL" >&2
+    exit 1
+fi
+
+# 4. 非 postgres 协议同样拒绝。
+if PROJECT_DIR="$PROJECT" BUILD_DIR="$TEST_ROOT/b4" DATABASE_URL="mysql://user@host/db" \
+    bash "$SCRIPT_DIR/database-runtime-build.sh" >/dev/null 2>&1; then
+    echo "expected failure for a non-PostgreSQL DATABASE_URL" >&2
+    exit 1
+fi
+
+# 只有第 1 步应该触发 db:push。
+test "$(wc -l <"$DB_PUSH_CALLS" | tr -d ' ')" = "1"
 
 echo "database runtime build tests passed"

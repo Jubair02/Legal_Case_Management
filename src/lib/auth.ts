@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify } from "jose"
 import { cookies, headers } from "next/headers"
 import { db } from "@/lib/db"
+import { BEARER_FALLBACK_ENABLED } from "@/lib/bearer-fallback"
 
 function getSecret(): Uint8Array {
   const secret = process.env.AUTH_SECRET
@@ -63,6 +64,8 @@ async function getRequestToken(): Promise<string | null> {
   const cookieStore = await cookies()
   const cookieToken = cookieStore.get(SESSION_COOKIE)?.value
   if (cookieToken) return cookieToken
+  // The header carrier only exists for cookie-blocked embedding contexts.
+  if (!BEARER_FALLBACK_ENABLED) return null
   const headerStore = await headers()
   const authorization = headerStore.get("authorization")
   if (authorization?.toLowerCase().startsWith("bearer ")) {

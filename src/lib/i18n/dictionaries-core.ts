@@ -55,6 +55,7 @@ export const enCore: Record<string, string> = {
   "common.page": "Page",
   "common.of": "of",
   "common.showMore": "Show more",
+  "common.viewAll": "View all",
 
   /* ------------------------------ status.* ------------------------------ */
   // Cases
@@ -165,6 +166,14 @@ export const enCore: Record<string, string> = {
   "login.featureReminders": "Hearing Reminders",
   "login.featureRemindersDesc": "Today & tomorrow alerts so no date is missed.",
   "login.footerNote": "© 2026 AinSheba · আইনসেবা — built for chambers & advocates",
+  "login.eyebrow": "For chambers & advocates in Bangladesh",
+  "login.heroTitle": "Every matter, in order.",
+  "login.heroBody": "Cases, hearing dates, court papers and fees — held in one place, in the order a chamber actually works.",
+  "login.featuresTitle": "Inside the chamber",
+  "login.trustEncrypted": "Encrypted document vault",
+  "login.trustRoles": "Role-based access control",
+  "login.trustAudit": "Complete audit trail",
+  "login.securityNote": "Sessions expire on their own. Never share your password.",
 
   /* ----------------------------- dashboard.* ----------------------------- */
   "dashboard.welcome": "Welcome, {name}",
@@ -206,6 +215,17 @@ export const enCore: Record<string, string> = {
   "dashboard.unpaidOverdue": "Unpaid & overdue bills",
   "dashboard.due": "Due {date}",
   "dashboard.hearingFallback": "Hearing",
+  "dashboard.goodMorning": "Good morning",
+  "dashboard.goodAfternoon": "Good afternoon",
+  "dashboard.goodEvening": "Good evening",
+  "dashboard.greetingLine": "{greeting}, {name}",
+  "dashboard.hearingsScheduled": "{count} scheduled",
+  "dashboard.noneScheduled": "Nothing scheduled",
+  "dashboard.noActivity": "Nothing has happened yet",
+  "dashboard.noUpdates": "No updates yet",
+  "dashboard.noCases": "No cases yet",
+  "dashboard.openCaseFile": "Open case file",
+  "dashboard.viewStat": "View {label}",
 
   /* --------------------------- notifications.* --------------------------- */
   "notifications.title": "Notifications",
@@ -260,7 +280,6 @@ export const enCore: Record<string, string> = {
   "settings.noUsersFilteredDesc": "Try a different search term or role filter.",
   "settings.loadFailed": "Could not load users",
   "settings.deleteUserTitle": "Delete this user?",
-  "settings.deleteUserDesc": "{name} ({email}) will permanently lose portal access. Users with linked case records cannot be deleted.",
   "settings.deleteUserDesc":
     "{name} ({email}) will permanently lose portal access. Users with linked case records cannot be deleted.",
   "settings.genericError": "Something went wrong. Please try again.",
@@ -349,6 +368,7 @@ export const bnCore: Record<string, string> = {
   "common.page": "পৃষ্ঠা",
   "common.of": "এর",
   "common.showMore": "আরও দেখুন",
+  "common.viewAll": "সব দেখুন",
 
   /* ------------------------------ status.* ------------------------------ */
   // Cases
@@ -459,6 +479,14 @@ export const bnCore: Record<string, string> = {
   "login.featureReminders": "শুনানির রিমাইন্ডার",
   "login.featureRemindersDesc": "আজ ও আগামীকালের সতর্কতা — কোনো তারিখ বাদ যাবে না।",
   "login.footerNote": "© 2026 AinSheba · আইনসেবা — চেম্বার ও আইনজীবীদের জন্য নির্মিত",
+  "login.eyebrow": "বাংলাদেশের চেম্বার ও আইনজীবীদের জন্য",
+  "login.heroTitle": "প্রতিটি মামলা, সুবিন্যস্ত।",
+  "login.heroBody": "মামলা, শুনানির তারিখ, আদালতের কাগজপত্র ও ফি — সব এক জায়গায়, চেম্বারের কাজের ক্রমানুসারে।",
+  "login.featuresTitle": "চেম্বারের ভেতরে",
+  "login.trustEncrypted": "এনক্রিপ্টেড দলিল ভান্ডার",
+  "login.trustRoles": "ভূমিকাভিত্তিক অ্যাক্সেস নিয়ন্ত্রণ",
+  "login.trustAudit": "সম্পূর্ণ অডিট ট্রেইল",
+  "login.securityNote": "সেশন নির্দিষ্ট সময় পর নিজেই শেষ হয়। পাসওয়ার্ড কারও সঙ্গে ভাগ করবেন না।",
 
   /* ----------------------------- dashboard.* ----------------------------- */
   "dashboard.welcome": "স্বাগতম, {name}",
@@ -500,6 +528,17 @@ export const bnCore: Record<string, string> = {
   "dashboard.unpaidOverdue": "অপরিশোধিত ও বকেয়া বিল",
   "dashboard.due": "বকেয়ার তারিখ {date}",
   "dashboard.hearingFallback": "শুনানি",
+  "dashboard.goodMorning": "শুভ সকাল",
+  "dashboard.goodAfternoon": "শুভ অপরাহ্ণ",
+  "dashboard.goodEvening": "শুভ সন্ধ্যা",
+  "dashboard.greetingLine": "{greeting}, {name}",
+  "dashboard.hearingsScheduled": "{count}টি নির্ধারিত",
+  "dashboard.noneScheduled": "কিছু নির্ধারিত নেই",
+  "dashboard.noActivity": "এখনো কিছু ঘটেনি",
+  "dashboard.noUpdates": "এখনো কোনো আপডেট নেই",
+  "dashboard.noCases": "এখনো কোনো মামলা নেই",
+  "dashboard.openCaseFile": "মামলার ফাইল খুলুন",
+  "dashboard.viewStat": "{label} দেখুন",
 
   /* --------------------------- notifications.* --------------------------- */
   "notifications.title": "নোটিফিকেশন",
@@ -554,7 +593,6 @@ export const bnCore: Record<string, string> = {
   "settings.noUsersFilteredDesc": "ভিন্ন শব্দ বা ভূমিকা ফিল্টার দিয়ে চেষ্টা করুন।",
   "settings.loadFailed": "ব্যবহারকারী লোড করা যায়নি",
   "settings.deleteUserTitle": "এই ব্যবহারকারীকে মুছে ফেলবেন?",
-  "settings.deleteUserDesc": "{name} ({email}) পোর্টাল অ্যাক্সেস স্থায়ীভাবে হারাবেন। যাদের সাথে মামলার রেকর্ড যুক্ত আছে তাদের মোছা যাবে না।",
   "settings.deleteUserDesc":
     "{name} ({email}) পোর্টালে স্থায়ীভাবে প্রবেশ করতে পারবেন না। মামলার রেকর্ডে সংযুক্ত ব্যবহারকারী মুছে ফেলা যায় না।",
   "settings.genericError": "কিছু একটা সমস্যা হয়েছে। আবার চেষ্টা করুন।",

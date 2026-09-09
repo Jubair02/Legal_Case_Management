@@ -3,6 +3,7 @@ import { ApiError, handle, ok, readJson, requireAuth, requireString } from "@/li
 import { hashPassword, MAX_PASSWORD_LENGTH, verifyPassword } from "@/lib/password"
 import { setSessionCookie, signSession } from "@/lib/auth"
 import { audit } from "@/lib/audit"
+import { BEARER_FALLBACK_ENABLED } from "@/lib/bearer-fallback"
 
 /**
  * POST /api/auth/change-password
@@ -54,6 +55,6 @@ export async function POST(request: Request) {
 
     // New token too: sessionVersion was bumped, so any Bearer token the client
     // kept from login would otherwise stop working right after the change.
-    return ok({ ok: true, token })
+    return ok({ ok: true, ...(BEARER_FALLBACK_ENABLED ? { token } : {}) })
   })
 }

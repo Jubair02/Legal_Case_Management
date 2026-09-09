@@ -53,9 +53,6 @@ cd "$BUILD_DIR" || exit 1
 
 ls -lah
 
-DEFAULT_PACKAGED_DB_PATH="/app/db/custom.db"
-DEFAULT_PACKAGED_DATABASE_URL="file:$DEFAULT_PACKAGED_DB_PATH"
-
 # Python 依赖在构建阶段安装进部署产物，不复用 Sandbox 的 /home/z/.venv。
 # Next.js 及其启动的子进程都会继承这组路径。
 if [ -d "/app/python-runtime/site-packages" ]; then
@@ -75,19 +72,26 @@ if [ -f "./next-service-dist/server.js" ]; then
     export NODE_ENV=production
     export PORT="${PORT:-3000}"
     export HOSTNAME="${HOSTNAME:-0.0.0.0}"
-    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PACKAGED_DATABASE_URL}"
-
-    if [ "$DATABASE_URL" = "$DEFAULT_PACKAGED_DATABASE_URL" ]; then
-        if [ ! -f "$DEFAULT_PACKAGED_DB_PATH" ]; then
-            echo "❌ 未找到打包后的数据库文件 $DEFAULT_PACKAGED_DB_PATH"
-            echo "   为避免生产环境启动到空数据库，启动已终止"
-            exit 1
-        fi
-
-        echo "🗄️  当前使用打包数据库: $DEFAULT_PACKAGED_DB_PATH"
-    else
-        echo "🗄️  当前使用外部指定数据库: $DATABASE_URL"
+    # PostgreSQL 连接串是必需的，没有可回退的打包数据库。
+    # A PostgreSQL connection string is required — there is no packaged
+    # database to fall back to, and silently starting against nothing would
+    # look like total data loss to the chamber.
+    if [ -z "${DATABASE_URL:-}" ]; then
+        echo "❌ DATABASE_URL 未设置，启动已终止 / DATABASE_URL is not set; refusing to start."
+        exit 1
     fi
+
+    case "$DATABASE_URL" in
+        postgres://*|postgresql://*) ;;
+        *)
+            echo "❌ DATABASE_URL 必须是 PostgreSQL 连接串 / must be a PostgreSQL connection string."
+            exit 1
+            ;;
+    esac
+
+    # 只打印主机，避免把密码写进日志 / log the host only, never the password.
+    db_host="$(printf '%s' "$DATABASE_URL" | sed -E 's#^[^@]*@##; s#[/?].*$##')"
+    echo "🗄️  使用数据库 / Using database host: $db_host"
     
     # 后台启动 Next.js
     bun server.js &

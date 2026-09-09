@@ -2,6 +2,7 @@ import { unlinkSync } from "fs"
 import { db } from "@/lib/db"
 import { ApiError, handle, readJson, requireAuth } from "@/lib/api-helpers"
 import { assertCaseWriteAccess, isStaffOrAdmin } from "@/lib/permissions"
+import { resolveUploadPath } from "@/lib/uploads"
 import { audit } from "@/lib/audit"
 
 function documentDTO(d: {
@@ -85,9 +86,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     // Delete the DB row first so a failed delete never leaves a dangling row
     // pointing at an already-removed file; unlink is best-effort afterwards.
     await db.caseDocument.delete({ where: { id } })
-    if (doc.filePath) {
+    const absPath = resolveUploadPath(doc.filePath)
+    if (absPath) {
       try {
-        unlinkSync(doc.filePath)
+        unlinkSync(absPath)
       } catch {
         // best-effort file removal
       }

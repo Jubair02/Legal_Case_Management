@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import {
   AlertTriangle,
   Check,
@@ -68,6 +68,7 @@ import type {
 } from "@/lib/types"
 import { cn, formatDate, formatDateTime, initials } from "@/lib/utils"
 import { isValidEmail } from "@/lib/validation"
+import { useResetOnOpen } from "@/lib/use-reset-on-open"
 
 const ALL = "ALL"
 
@@ -130,16 +131,14 @@ function UserFormDialog({
   const [status, setStatus] = useState("ACTIVE")
   const [pending, setPending] = useState(false)
 
-  useEffect(() => {
-    if (open) {
-      setName(editing?.name ?? "")
-      setEmail(editing?.email ?? "")
-      setPassword("")
-      setPhone(editing?.phone ?? "")
-      setRole(editing?.role ?? "CLIENT")
-      setStatus(editing?.status ?? "ACTIVE")
-    }
-  }, [open, editing])
+  useResetOnOpen(open ? (editing?.id ?? "new") : null, () => {
+    setName(editing?.name ?? "")
+    setEmail(editing?.email ?? "")
+    setPassword("")
+    setPhone(editing?.phone ?? "")
+    setRole(editing?.role ?? "CLIENT")
+    setStatus(editing?.status ?? "ACTIVE")
+  })
 
   const submit = async () => {
     if (!name.trim()) {
@@ -622,7 +621,7 @@ function ChangePasswordCard() {
       setNext("")
       setConfirm("")
     } catch (e) {
-      toast.error(errorMessage(e))
+      toast.error(errorMessage(e, t("settings.genericError")))
     } finally {
       setPending(false)
     }

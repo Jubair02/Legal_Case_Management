@@ -2,6 +2,7 @@ import { unlinkSync } from "fs"
 import { db } from "@/lib/db"
 import { ApiError, handle, optionalString, parseDateOnly, readJson, requireAuth, requireString } from "@/lib/api-helpers"
 import { assertCaseReadAccess, assertCaseWriteAccess } from "@/lib/permissions"
+import { resolveUploadPath } from "@/lib/uploads"
 import { CASE_PRIORITIES, CASE_STATUSES, CASE_TYPES } from "@/lib/constants"
 import { dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
 import { clientUserId, lawyerUserId, notifyUsers } from "@/lib/notify"
@@ -406,9 +407,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     })
 
     for (const d of docs) {
-      if (!d.filePath) continue
+      const abs = resolveUploadPath(d.filePath)
+      if (!abs) continue
       try {
-        unlinkSync(d.filePath)
+        unlinkSync(abs)
       } catch {
         // best-effort file removal
       }

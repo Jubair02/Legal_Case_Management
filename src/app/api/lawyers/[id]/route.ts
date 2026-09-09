@@ -1,11 +1,12 @@
+import type { $Enums } from "@prisma/client"
 import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireNumber, requireString } from "@/lib/api-helpers"
 import { caseScopeWhere } from "@/lib/permissions"
 import { EMAIL_RE } from "@/lib/validation"
 import { audit, diffFields } from "@/lib/audit"
+import { ACTIVE_CASE_STATUSES } from "@/lib/constants"
 
-const ACTIVE_CASE_STATUSES = ["ACTIVE", "PENDING", "ON_HOLD"]
 
 /** Earliest future UPCOMING hearing date per caseId (ISO string). */
 async function nextHearingMap(caseIds: string[]): Promise<Map<string, string>> {
@@ -137,7 +138,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
           data: {
             ...(nameChanged ? { name: data.name as string } : {}),
             ...(emailChanged && newEmail ? { email: newEmail } : {}),
-            ...(statusChanged ? { status: data.status as string } : {}),
+            ...(statusChanged ? { status: data.status as $Enums.AccountStatus } : {}),
           },
         })
       }

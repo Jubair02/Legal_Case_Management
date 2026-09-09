@@ -1,13 +1,12 @@
 import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
-import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireString } from "@/lib/api-helpers"
-import { CLIENT_TYPES } from "@/lib/constants"
+import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireEnum, requireString } from "@/lib/api-helpers"
+import { ACTIVE_CASE_STATUSES, CLIENT_TYPES } from "@/lib/constants"
 import { caseScopeWhere } from "@/lib/permissions"
 import { dhakaDateKey } from "@/lib/dates"
 import { EMAIL_RE } from "@/lib/validation"
 import { audit, diffFields } from "@/lib/audit"
 
-const ACTIVE_CASE_STATUSES = ["ACTIVE", "PENDING", "ON_HOLD"]
 
 function clientDTO(
   c: {
@@ -184,7 +183,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       if (!(CLIENT_TYPES as readonly string[]).includes(clientType)) {
         throw new ApiError(`"clientType" must be one of: ${CLIENT_TYPES.join(", ")}.`, 422)
       }
-      data.clientType = clientType
+      data.clientType = requireEnum(clientType, CLIENT_TYPES, "clientType")
     }
 
     const nameChanged = typeof data.name === "string" && data.name !== client.name

@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
-import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireString } from "@/lib/api-helpers"
+import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireEnum, requireString } from "@/lib/api-helpers"
 import { ROLES } from "@/lib/constants"
 import { hashPassword, MAX_PASSWORD_LENGTH } from "@/lib/password"
 import { audit, diffFields } from "@/lib/audit"
@@ -47,11 +47,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (body.phone !== undefined) data.phone = optionalString(body.phone)
 
     if (body.role !== undefined) {
-      const role = requireString(body.role, "role")
-      if (!(ROLES as readonly string[]).includes(role)) {
-        throw new ApiError(`"role" must be one of: ${ROLES.join(", ")}.`, 422)
-      }
-      data.role = role
+      data.role = requireEnum(body.role, ROLES, "role")
     }
     if (body.status !== undefined) {
       const status = requireString(body.status, "status")
@@ -67,6 +63,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
         throw new ApiError(`Password must be at most ${MAX_PASSWORD_LENGTH} characters.`, 422)
       }
       data.password = hashPassword(password)
+      // Revoke every session issued before this reset. Without the bump an
+      // admin resetting a compromised account's password would leave the
+      // attacker's existing token valid for the rest of its 7-day life.
+      data.sessionVersion = { increment: 1 }
     }
 
     const updated = await db.user.update({ where: { id }, data, include: userInclude })
@@ -77,8 +77,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       updated as unknown as Record<string, unknown>,
       ["name", "email", "phone", "role", "status"]
     )
+    const passwordReset = data.password !== undefined
     await audit(auth, "USER_UPDATE", "User", id, target.email,
-      `Updated user ${target.email}`, userDiff)
+      `Updated user ${target.email}${passwordReset ? " (password reset — existing sessions revoked)" : ""}`,
+      userDiff)
 
     return ok(userDTO(updated))
   })
@@ -116,6 +118,9 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
       if (client) await tx.client.delete({ where: { id: client.id } })
       await tx.user.delete({ where: { id } })
     })
+
+    await audit(auth, "USER_DELETE", "User", id, target.email,
+      `Deleted user ${target.name} (${target.email}) — role ${target.role}`)
 
     return ok({ ok: true })
   })

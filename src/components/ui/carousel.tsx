@@ -93,6 +93,8 @@ function Carousel({
     setApi(api)
   }, [api, setApi])
 
+  // Vendor shadcn/embla glue: subscribing to an external carousel instance.
+  /* eslint-disable react-hooks/set-state-in-effect -- external embla API sync */
   React.useEffect(() => {
     if (!api) return
     onSelect(api)
@@ -103,6 +105,7 @@ function Carousel({
       api?.off("select", onSelect)
     }
   }, [api, onSelect])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   return (
     <CarouselContext.Provider

@@ -9,11 +9,57 @@ export function err(message: string, status = 400, code?: string) {
   return NextResponse.json({ error: { message, code: code ?? "ERROR" } }, { status })
 }
 
+/**
+ * List pagination.
+ *
+ * Every list endpoint is bounded so a large chamber can never make the server
+ * materialise an entire table. Callers may page explicitly with `?limit=&
+ * offset=`; without them the ceiling below applies and `meta.hasMore` tells
+ * the caller the response was cut short.
+ */
+export const DEFAULT_PAGE_SIZE = 1000
+export const MAX_PAGE_SIZE = 1000
+
+export interface PageParams {
+  take: number
+  skip: number
+}
+
+export function parsePagination(searchParams: URLSearchParams): PageParams {
+  const rawLimit = Number(searchParams.get("limit"))
+  const rawOffset = Number(searchParams.get("offset"))
+  const take =
+    Number.isFinite(rawLimit) && rawLimit > 0
+      ? Math.min(Math.floor(rawLimit), MAX_PAGE_SIZE)
+      : DEFAULT_PAGE_SIZE
+  const skip = Number.isFinite(rawOffset) && rawOffset > 0 ? Math.floor(rawOffset) : 0
+  return { take, skip }
+}
+
+/**
+ * `{ data, meta }` — `data` keeps the shape every existing client already
+ * reads, so adding pagination does not break them.
+ */
+export function okPaged<T>(rows: T[], total: number, page: PageParams) {
+  return NextResponse.json({
+    data: rows,
+    meta: {
+      total,
+      limit: page.take,
+      offset: page.skip,
+      hasMore: page.skip + rows.length < total,
+    },
+  })
+}
+
 export class ApiError extends Error {
   status: number
-  constructor(message: string, status = 400) {
+  /** Machine-readable code surfaced to the client (e.g. RATE_LIMITED). */
+  code?: string
+  constructor(message: string, status = 400, code?: string) {
     super(message)
     this.status = status
+    this.code = code
   }
 }
 
@@ -22,7 +68,7 @@ export async function handle(fn: () => Promise<Response>): Promise<Response> {
   try {
     return await fn()
   } catch (e) {
-    if (e instanceof ApiError) return err(e.message, e.status)
+    if (e instanceof ApiError) return err(e.message, e.status, e.code)
     console.error("[api-error]", e)
     return err("Something went wrong. Please try again.", 500, "INTERNAL")
   }
@@ -66,6 +112,32 @@ export function requireString(v: unknown, field: string): string {
     throw new ApiError(`"${field}" is required.`, 422)
   }
   return v.trim()
+}
+
+/**
+ * Validate against a fixed set AND narrow to that set's member type.
+ *
+ * Replaces the `allowed.includes(x as never)` pattern, which checked the value
+ * but left it typed `string` — fine when the column was text, not once the
+ * column is a Postgres enum. The single cast here is guarded by the check
+ * immediately above it.
+ */
+export function requireEnum<T extends string>(v: unknown, allowed: readonly T[], field: string): T {
+  const s = requireString(v, field)
+  if (!(allowed as readonly string[]).includes(s)) {
+    throw new ApiError(`"${field}" must be one of: ${allowed.join(", ")}.`, 422)
+  }
+  return s as T
+}
+
+/** As requireEnum, but absent/empty values yield null instead of throwing. */
+export function optionalEnum<T extends string>(v: unknown, allowed: readonly T[], field: string): T | null {
+  const s = optionalString(v)
+  if (s === null) return null
+  if (!(allowed as readonly string[]).includes(s)) {
+    throw new ApiError(`"${field}" must be one of: ${allowed.join(", ")}.`, 422)
+  }
+  return s as T
 }
 
 export function optionalString(v: unknown): string | null {

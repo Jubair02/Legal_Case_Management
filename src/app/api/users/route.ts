@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
-import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
+import { ApiError, handle, ok, okPaged, optionalString, parsePagination, readJson, requireAuth, requireEnum, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
 import { ROLES } from "@/lib/constants"
 import { hashPassword, MAX_PASSWORD_LENGTH } from "@/lib/password"
 import { EMAIL_RE } from "@/lib/validation"
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     const role = searchParams.get("role")?.trim() ?? ""
 
     const where: Prisma.UserWhereInput = {}
-    if (role) where.role = role
+    if (role) where.role = requireEnum(role, ROLES, "role")
     if (search) {
       where.OR = [
         { name: { contains: search } },
@@ -44,13 +44,19 @@ export async function GET(request: Request) {
       ]
     }
 
-    const users = await db.user.findMany({
-      where,
-      include: userInclude,
-      orderBy: { createdAt: "desc" },
-    })
+    const page = parsePagination(searchParams)
+    const [users, total] = await Promise.all([
+      db.user.findMany({
+        where,
+        include: userInclude,
+        orderBy: { createdAt: "desc" },
+        take: page.take,
+        skip: page.skip,
+      }),
+      db.user.count({ where }),
+    ])
 
-    return ok(users.map(userDTO))
+    return okPaged(users.map(userDTO), total, page)
   })
 }
 
@@ -63,17 +69,13 @@ export async function POST(request: Request) {
     const email = requireString(body.email, "email").toLowerCase()
     const password = typeof body.password === "string" ? body.password : ""
     const phone = optionalString(body.phone)
-    const role = requireString(body.role, "role")
+    const role = requireEnum(body.role, ROLES, "role")
 
     if (!EMAIL_RE.test(email)) throw new ApiError("Please enter a valid email address.", 422)
     if (password.length < 6) throw new ApiError("Password must be at least 6 characters.", 422)
     if (password.length > MAX_PASSWORD_LENGTH) {
       throw new ApiError(`Password must be at most ${MAX_PASSWORD_LENGTH} characters.`, 422)
     }
-    if (!(ROLES as readonly string[]).includes(role)) {
-      throw new ApiError(`"role" must be one of: ${ROLES.join(", ")}.`, 422)
-    }
-
     const existing = await db.user.findUnique({ where: { email } })
     if (existing) throw new ApiError("A user with this email already exists.", 409)
 

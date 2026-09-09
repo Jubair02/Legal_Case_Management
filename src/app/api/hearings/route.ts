@@ -1,5 +1,5 @@
 import { db } from "@/lib/db"
-import { ApiError, handle, requireAuth } from "@/lib/api-helpers"
+import { ApiError, handle, okPaged, parsePagination, requireAuth } from "@/lib/api-helpers"
 import { caseScopeWhere } from "@/lib/permissions"
 import { dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
 
@@ -86,12 +86,18 @@ export async function GET(request: Request) {
     }
 
     const ascending = filter === "today" || filter === "upcoming"
-    const hearings = await db.hearing.findMany({
-      where: where as never,
-      include: { case: { select: { caseNumber: true, title: true } } },
-      orderBy: { hearingDate: ascending ? "asc" : "desc" },
-    })
+    const page = parsePagination(searchParams)
+    const [hearings, total] = await Promise.all([
+      db.hearing.findMany({
+        where: where as never,
+        include: { case: { select: { caseNumber: true, title: true } } },
+        orderBy: { hearingDate: ascending ? "asc" : "desc" },
+        take: page.take,
+        skip: page.skip,
+      }),
+      db.hearing.count({ where: where as never }),
+    ])
 
-    return Response.json({ data: hearings.map((h) => hearingDTO(h, user.role === "CLIENT")) })
+    return okPaged(hearings.map((h) => hearingDTO(h, user.role === "CLIENT")), total, page)
   })
 }

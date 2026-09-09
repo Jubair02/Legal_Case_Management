@@ -1,3 +1,4 @@
+import type { $Enums } from "@prisma/client"
 import { db } from "@/lib/db"
 import { ApiError, handle, optionalString, parseDateOnly, readJson, requireAuth, requireNumber } from "@/lib/api-helpers"
 import { dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
@@ -45,7 +46,7 @@ function computeInvoiceStatus(
   dueDate: Date | null,
   paid: number,
   todayStart: Date
-): string {
+): $Enums.InvoiceStatus {
   if (status === "CANCELLED") return "CANCELLED"
   if (paid >= amount - 0.005) return "PAID"
   if (paid > 0.005) return "PARTIAL"

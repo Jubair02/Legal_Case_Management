@@ -2,6 +2,7 @@ import { db } from "@/lib/db"
 import { dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
 import { notifyUsers } from "@/lib/notify"
 import { enqueueOutbound } from "@/lib/outbound"
+import { pruneLoginAttempts } from "@/lib/rate-limit"
 
 /**
  * Hearing reminder sweep.
@@ -19,15 +20,40 @@ export interface SweepResult {
   ranAt: string
   today: { hearings: number; notified: number }
   tomorrow: { hearings: number; notified: number }
+  overdueInvoices: number
+  prunedLoginAttempts: number
+}
+
+/**
+ * The only invoice transition driven by the clock rather than by a write:
+ * an unpaid invoice whose due date has passed becomes OVERDUE. Every other
+ * transition is persisted by the route that causes it. One bulk statement, so
+ * reads never have to repair stored status themselves.
+ */
+async function refreshOverdueInvoices(): Promise<number> {
+  try {
+    const { start } = dhakaDayRange(dhakaDayOffset(0))
+    const { count } = await db.invoice.updateMany({
+      where: { status: "UNPAID", dueDate: { lt: start } },
+      data: { status: "OVERDUE" },
+    })
+    return count
+  } catch {
+    return 0
+  }
 }
 
 export async function runReminderSweep(): Promise<SweepResult> {
   const today = await sweepDay("HEARING_TODAY", dhakaDayOffset(0), "Hearing today")
   const tomorrow = await sweepDay("HEARING_TOMORROW", dhakaDayOffset(1), "Hearing tomorrow")
+  const overdueInvoices = await refreshOverdueInvoices()
+  const prunedLoginAttempts = await pruneLoginAttempts()
   return {
     ranAt: new Date().toISOString(),
     today,
     tomorrow,
+    overdueInvoices,
+    prunedLoginAttempts,
   }
 }
 

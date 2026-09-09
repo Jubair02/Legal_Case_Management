@@ -1,9 +1,10 @@
+import type { $Enums } from "@prisma/client"
 import { db } from "@/lib/db"
 
 export interface NotifyPayload {
   title: string
   message?: string
-  type?: string
+  type?: $Enums.NotificationType
   caseId?: string
   link?: string
 }

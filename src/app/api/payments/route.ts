@@ -1,5 +1,6 @@
+import type { $Enums } from "@prisma/client"
 import { db } from "@/lib/db"
-import { ApiError, handle, optionalString, parseDateOnly, readJson, requireAuth, requireNumber, requireString } from "@/lib/api-helpers"
+import { ApiError, handle, okPaged, optionalString, parseDateOnly, parsePagination, readJson, requireAuth, requireNumber, requireString } from "@/lib/api-helpers"
 import { PAYMENT_METHODS } from "@/lib/constants"
 import { dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
 import { adminIds, clientUserId, notifyUsers } from "@/lib/notify"
@@ -83,13 +84,19 @@ export async function GET(request: Request) {
       }
     }
 
-    const rows = await db.payment.findMany({
-      where: where as never,
-      include: paymentInclude,
-      orderBy: { paymentDate: "desc" },
-    })
+    const page = parsePagination(searchParams)
+    const [rows, total] = await Promise.all([
+      db.payment.findMany({
+        where: where as never,
+        include: paymentInclude,
+        orderBy: { paymentDate: "desc" },
+        take: page.take,
+        skip: page.skip,
+      }),
+      db.payment.count({ where: where as never }),
+    ])
 
-    return Response.json({ data: rows.map(paymentDTO) })
+    return okPaged(rows.map(paymentDTO), total, page)
   })
 }
 
@@ -162,7 +169,7 @@ export async function POST(request: Request) {
       // recompute + persist invoice status
       const newPaid = paid + amount
       const todayStart = dhakaDayRange(dhakaDayOffset(0)).start
-      let status: string
+      let status: $Enums.InvoiceStatus
       if (newPaid >= inv.amount - 0.005) {
         status = "PAID"
       } else if (newPaid > 0.005) {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import { toast } from "sonner"
 import {
   Building2,
@@ -54,6 +54,7 @@ import type {
 } from "@/lib/types"
 import { caseStatusStyles, formatRelativeDay, type StatusStyle } from "@/lib/utils"
 import { isValidEmail } from "@/lib/validation"
+import { useResetOnOpen } from "@/lib/use-reset-on-open"
 
 type NavigateFn = (view: ViewKey, params?: ViewParams) => void
 
@@ -328,8 +329,7 @@ export function LawyerFormDialog({ open, onOpenChange, lawyer, onSaved }: Lawyer
   const [password, setPassword] = useState("")
   const [pending, setPending] = useState(false)
 
-  useEffect(() => {
-    if (!open) return
+  useResetOnOpen(open ? (lawyer?.id ?? "new") : null, () => {
     setName(lawyer?.name ?? "")
     setPhone(lawyer?.phone ?? "")
     setEmail(lawyer?.email ?? "")
@@ -341,7 +341,7 @@ export function LawyerFormDialog({ open, onOpenChange, lawyer, onSaved }: Lawyer
     setPortal(false)
     setPassword("")
     setPending(false)
-  }, [open, lawyer])
+  })
 
   const submit = async () => {
     if (!name.trim()) {

@@ -1,5 +1,5 @@
 import { db } from "@/lib/db"
-import { ApiError, handle, optionalString, parseDateOnly, readJson, requireAuth, requireNumber, requireString } from "@/lib/api-helpers"
+import { ApiError, handle, okPaged, optionalString, parseDateOnly, parsePagination, readJson, requireAuth, requireNumber, requireString } from "@/lib/api-helpers"
 import { dhakaDateKey, dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
 import { clientUserId, notifyUsers } from "@/lib/notify"
 import { audit } from "@/lib/audit"
@@ -117,24 +117,23 @@ export async function GET(request: Request) {
     }
 
     const todayRange = dhakaDayRange(dhakaDayOffset(0))
+    // Status is derived (it depends on payments + today's date) and search runs
+    // over the computed rows, so the page is applied after filtering rather
+    // than in SQL. `take` still bounds how much is ever pulled into memory.
+    const page = parsePagination(searchParams)
     const rows = (await db.invoice.findMany({
       where: where as never,
       include: invoiceInclude,
       orderBy: { createdAt: "desc" },
+      take: page.take,
+      skip: page.skip,
     })) as InvoiceRow[]
 
-    const result = []
+    const result: ReturnType<typeof invoiceDTO>[] = []
     for (const inv of rows) {
-      const paid = paidOf(inv)
-      const computed = computeInvoiceStatus(inv, paid, todayRange.start)
-      if (computed !== inv.status) {
-        try {
-          await db.invoice.update({ where: { id: inv.id }, data: { status: computed } })
-        } catch {
-          // keep going even if persisting the refreshed status fails
-        }
-        inv.status = computed
-      }
+      // Derived for display only — a GET must not write. The stored value is
+      // kept current by the write routes and the scheduler's overdue sweep.
+      inv.status = computeInvoiceStatus(inv, paidOf(inv), todayRange.start)
       if (statusFilter && inv.status !== statusFilter) continue
       if (search) {
         const q = search.toLowerCase()
@@ -145,7 +144,7 @@ export async function GET(request: Request) {
       result.push(invoiceDTO(inv, inv.status))
     }
 
-    return Response.json({ data: result })
+    return okPaged(result, result.length, page)
   })
 }
 
@@ -193,13 +192,35 @@ export async function POST(request: Request) {
       year: "numeric",
     }).format(new Date())
     const prefix = `INV-${yearKey}-`
-    const existingCount = await db.invoice.count({
+
+    // Invoice numbers come from a monotonic counter, never from count() or
+    // max(): both go backwards when the newest invoice is deleted, which would
+    // reissue a number a client may already hold on paper.
+    const sequenceKey = `INV-${yearKey}`
+    // Seed the counter, once per year, from the highest number already issued
+    // (covers invoices created before this counter existed).
+    const highest = await db.invoice.findFirst({
       where: { invoiceNumber: { startsWith: prefix } },
+      orderBy: { invoiceNumber: "desc" },
+      select: { invoiceNumber: true },
+    })
+    const seed = highest ? Number(highest.invoiceNumber.slice(prefix.length)) : 0
+    await db.numberSequence.upsert({
+      where: { key: sequenceKey },
+      create: { key: sequenceKey, value: Number.isFinite(seed) ? seed : 0 },
+      update: {},
+    })
+    // A single atomic UPDATE ... value = value + 1, so concurrent requests
+    // can never be handed the same number.
+    const { value: nextSequence } = await db.numberSequence.update({
+      where: { key: sequenceKey },
+      data: { value: { increment: 1 } },
+      select: { value: true },
     })
 
     let created: InvoiceRow | null = null
     for (let attempt = 0; attempt < 5 && !created; attempt++) {
-      const candidate = `${prefix}${String(existingCount + 1 + attempt).padStart(4, "0")}`
+      const candidate = `${prefix}${String(nextSequence + attempt).padStart(4, "0")}`
       try {
         created = (await db.invoice.create({
           data: {

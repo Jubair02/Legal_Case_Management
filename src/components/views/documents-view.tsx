@@ -49,6 +49,7 @@ import { DOCUMENT_CATEGORIES, DOCUMENT_TYPES, MAX_FILE_SIZE, UPLOAD_ACCEPT } fro
 import { useLanguage, type TranslateFn } from "@/lib/i18n/language"
 import type { CaseDetailDTO, CaseListDTO, DocumentDTO, ViewProps } from "@/lib/types"
 import { cn, formatDate, formatFileSize } from "@/lib/utils"
+import { useResetOnOpen } from "@/lib/use-reset-on-open"
 
 /**
  * Builds a derived enum dictionary key: enumTKey("documents.type", "Court Order")
@@ -97,8 +98,7 @@ function UploadDocumentDialog({
   const lastFileNameRef = useRef("")
   const { t } = useLanguage()
 
-  useEffect(() => {
-    if (!open) return
+  useResetOnOpen(open ? "open" : null, () => {
     setFile(null)
     setName("")
     setType("__none__")
@@ -106,7 +106,7 @@ function UploadDocumentDialog({
     setShare(false)
     setPending(false)
     lastFileNameRef.current = ""
-  }, [open])
+  })
 
   const handleFile = (f: File | null) => {
     setFile(f)
@@ -261,9 +261,13 @@ export default function DocumentsView({ user }: ViewProps) {
 
   const cases = useMemo(() => casesData ?? [], [casesData])
 
+  // Select the first case once the list arrives from the server; there is no
+  // earlier point at which a default can be chosen.
+  /* eslint-disable react-hooks/set-state-in-effect -- defaulting from fetched data */
   useEffect(() => {
     if (!selectedId && cases.length > 0) setSelectedId(cases[0].id)
   }, [cases, selectedId])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const {
     data: detail,

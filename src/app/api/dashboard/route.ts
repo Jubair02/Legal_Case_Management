@@ -1,10 +1,10 @@
+import type { $Enums } from "@prisma/client"
 import { db } from "@/lib/db"
 import { handle, requireAuth } from "@/lib/api-helpers"
 import { dhakaDateKey, dhakaDayOffset, dhakaDayRange } from "@/lib/dates"
-import { CURRENCY_SYMBOL } from "@/lib/constants"
+import { ACTIVE_CASE_STATUSES, CURRENCY_SYMBOL } from "@/lib/constants"
 
-const ACTIVE_STATUSES = ["ACTIVE", "PENDING", "ON_HOLD"]
-const CLOSED_STATUSES = ["RESOLVED", "CLOSED"]
+const CLOSED_STATUSES: $Enums.CaseStatus[] = ["RESOLVED", "CLOSED"]
 
 type CaseRow = {
   id: string
@@ -207,7 +207,7 @@ export async function GET() {
           include: { case: { select: { caseNumber: true, title: true } } },
           orderBy: { hearingDate: "asc" },
         })
-      ).map(hearingDTO)
+      ).map((h) => hearingDTO(h))
 
     const upcoming7 = async (caseWhere: Record<string, unknown> = {}) =>
       (
@@ -221,7 +221,7 @@ export async function GET() {
           orderBy: { hearingDate: "asc" },
           take: 6,
         })
-      ).map(hearingDTO)
+      ).map((h) => hearingDTO(h))
 
     // ---------- ADMIN ----------
     if (user.role === "ADMIN") {
@@ -240,7 +240,7 @@ export async function GET() {
         recentHearings,
       ] = await Promise.all([
         db.case.count(),
-        db.case.count({ where: { status: { in: ACTIVE_STATUSES } } }),
+        db.case.count({ where: { status: { in: ACTIVE_CASE_STATUSES } } }),
         db.hearing.count({ where: { status: "UPCOMING", hearingDate: { gte: now } } }),
         db.case.count({ where: { status: { in: CLOSED_STATUSES } } }),
         db.client.count(),
@@ -334,7 +334,7 @@ export async function GET() {
       const caseWhere = { lawyerId: lp?.id ?? "none" }
       const [myActiveCases, todays, upcomingList, upcomingCount, lawyerInvoices, myCasesRows] =
         await Promise.all([
-          db.case.count({ where: { ...caseWhere, status: { in: ACTIVE_STATUSES } } }),
+          db.case.count({ where: { ...caseWhere, status: { in: ACTIVE_CASE_STATUSES } } }),
           todaysHearings(caseWhere),
           upcoming7(caseWhere),
           db.hearing.count({ where: { status: "UPCOMING", hearingDate: { gte: now }, case: caseWhere } }),
@@ -381,7 +381,7 @@ export async function GET() {
       const [totalCases, activeCases, myCasesRows, nextHearingRows, ownUpdates, clientInvoices] =
         await Promise.all([
           db.case.count({ where: caseWhere }),
-          db.case.count({ where: { ...caseWhere, status: { in: ACTIVE_STATUSES } } }),
+          db.case.count({ where: { ...caseWhere, status: { in: ACTIVE_CASE_STATUSES } } }),
           db.case.findMany({
             where: caseWhere,
             include: { client: { select: { id: true, name: true, phone: true } }, lawyer: { select: { id: true, name: true } } },
@@ -440,7 +440,7 @@ export async function GET() {
     const [totalCases, activeCases, todays, upcomingList, upcomingCount, totalClients, recentCasesRows] =
       await Promise.all([
         db.case.count(),
-        db.case.count({ where: { status: { in: ACTIVE_STATUSES } } }),
+        db.case.count({ where: { status: { in: ACTIVE_CASE_STATUSES } } }),
         todaysHearings(),
         upcoming7(),
         db.hearing.count({ where: { status: "UPCOMING", hearingDate: { gte: now } } }),

@@ -1,6 +1,9 @@
+import type { $Enums } from "@prisma/client"
+
 // Domain constants for AinSheba — Legal Case Management (Bangladesh)
 
 export const ROLES = ["ADMIN", "LAWYER", "CLIENT", "STAFF"] as const
+export const ACCOUNT_STATUSES = ["ACTIVE", "INACTIVE"] as const
 export type Role = (typeof ROLES)[number]
 
 export const ROLE_LABELS: Record<string, string> = {
@@ -24,6 +27,9 @@ export const CASE_TYPES = [
 ] as const
 
 export const CASE_STATUSES = ["DRAFT", "ACTIVE", "PENDING", "ON_HOLD", "RESOLVED", "CLOSED"] as const
+
+/** Statuses that count as "open work" in dashboards and case-load counts. */
+export const ACTIVE_CASE_STATUSES: $Enums.CaseStatus[] = ["ACTIVE", "PENDING", "ON_HOLD"]
 
 export const CASE_STATUS_LABELS: Record<string, string> = {
   DRAFT: "Draft",

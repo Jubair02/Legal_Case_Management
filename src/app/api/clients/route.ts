@@ -1,12 +1,11 @@
 import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
-import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
-import { CLIENT_TYPES } from "@/lib/constants"
+import { ApiError, handle, ok, okPaged, optionalEnum, optionalString, parsePagination, readJson, requireAuth, requireEnum, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
+import { ACTIVE_CASE_STATUSES, CLIENT_TYPES } from "@/lib/constants"
 import { hashPassword, MAX_PASSWORD_LENGTH } from "@/lib/password"
 import { EMAIL_RE } from "@/lib/validation"
 import { audit } from "@/lib/audit"
 
-const ACTIVE_CASE_STATUSES = ["ACTIVE", "PENDING", "ON_HOLD"]
 
 function clientDTO(
   c: {
@@ -74,7 +73,7 @@ export async function GET(request: Request) {
       where.id = cp.id
     }
 
-    if (clientType) where.clientType = clientType
+    if (clientType) where.clientType = requireEnum(clientType, CLIENT_TYPES, "clientType")
     if (hasPortal === "true") where.userId = { not: null }
     else if (hasPortal === "false") where.userId = null
     if (search) {
@@ -86,17 +85,25 @@ export async function GET(request: Request) {
       ]
     }
 
-    const clients = await db.client.findMany({
-      where,
-      include: { user: { select: { email: true } }, _count: { select: { cases: true } } },
-      orderBy: { name: "asc" },
-    })
+    const page = parsePagination(searchParams)
+    const [clients, total] = await Promise.all([
+      db.client.findMany({
+        where,
+        include: { user: { select: { email: true } }, _count: { select: { cases: true } } },
+        orderBy: { name: "asc" },
+        take: page.take,
+        skip: page.skip,
+      }),
+      db.client.count({ where }),
+    ])
 
     const activeMap = await activeCaseCounts(clients.map((c) => c.id))
-    return ok(
+    return okPaged(
       clients.map((c) =>
         clientDTO(c, c._count.cases, activeMap.get(c.id) ?? 0, c.user?.email ?? null)
-      )
+      ),
+      total,
+      page
     )
   })
 }
@@ -116,10 +123,7 @@ export async function POST(request: Request) {
     }
     const nid = optionalString(body.nid)
     const address = optionalString(body.address)
-    const clientType = optionalString(body.clientType) ?? "INDIVIDUAL"
-    if (!(CLIENT_TYPES as readonly string[]).includes(clientType)) {
-      throw new ApiError(`"clientType" must be one of: ${CLIENT_TYPES.join(", ")}.`, 422)
-    }
+    const clientType = optionalEnum(body.clientType, CLIENT_TYPES, "clientType") ?? "INDIVIDUAL"
     const createPortalAccess = body.createPortalAccess === true || body.createPortalAccess === "true"
 
     if (createPortalAccess) {

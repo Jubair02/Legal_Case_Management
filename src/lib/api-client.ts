@@ -13,9 +13,12 @@
  * `Authorization: Bearer` on every request. When cookies work, both are sent
  * and the server prefers the cookie.
  */
+import { BEARER_FALLBACK_ENABLED } from "@/lib/bearer-fallback"
+
 const TOKEN_STORAGE_KEY = "lcm_session_token"
 
 export function getStoredToken(): string | null {
+  if (!BEARER_FALLBACK_ENABLED) return null
   if (typeof window === "undefined") return null
   try {
     return window.localStorage.getItem(TOKEN_STORAGE_KEY)
@@ -25,6 +28,7 @@ export function getStoredToken(): string | null {
 }
 
 function setStoredToken(token: string): void {
+  if (!BEARER_FALLBACK_ENABLED) return
   if (typeof window === "undefined") return
   try {
     window.localStorage.setItem(TOKEN_STORAGE_KEY, token)
@@ -40,6 +44,12 @@ export function clearStoredToken(): void {
   } catch {
     /* ignore */
   }
+}
+
+// Purge tokens left in localStorage by a build that had the fallback enabled,
+// so disabling it also clears what was already mirrored into browsers.
+if (typeof window !== "undefined" && !BEARER_FALLBACK_ENABLED) {
+  clearStoredToken()
 }
 
 /** Persist a token arriving inside any `{ data: { token } }` response. */

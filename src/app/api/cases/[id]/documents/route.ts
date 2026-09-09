@@ -4,8 +4,12 @@ import { db } from "@/lib/db"
 import { ApiError, handle, optionalString, requireAuth } from "@/lib/api-helpers"
 import { assertCaseWriteAccess } from "@/lib/permissions"
 import { ALLOWED_MIME_PREFIXES, MAX_FILE_SIZE } from "@/lib/constants"
+import { caseUploadDir, storedUploadPath } from "@/lib/uploads"
 import { clientUserId, notifyUsers } from "@/lib/notify"
 import { audit } from "@/lib/audit"
+
+/** Multipart framing + the other form fields, on top of the file itself. */
+const UPLOAD_OVERHEAD_ALLOWANCE = 64 * 1024
 
 function sanitizeFileName(name: string): string {
   const dot = name.lastIndexOf(".")
@@ -26,6 +30,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const user = await requireAuth(["ADMIN", "STAFF", "LAWYER"])
     const { id } = await params
     await assertCaseWriteAccess(user, id)
+
+    // Reject oversized uploads from the declared length before formData()
+    // buffers the whole body into memory. The post-parse check below still
+    // stands as the authoritative one (Content-Length is client-supplied).
+    const declaredLength = Number(request.headers.get("content-length") ?? "")
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_FILE_SIZE + UPLOAD_OVERHEAD_ALLOWANCE) {
+      throw new ApiError("File exceeds the 10 MB limit.", 413)
+    }
 
     let form: FormData
     try {
@@ -58,12 +70,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const safeName = sanitizeFileName(originalName)
     const savedFileName = `${Date.now()}-${safeName}`
 
-    const uploadsRoot = path.join(process.cwd(), "uploads")
-    const caseDir = path.join(uploadsRoot, id)
+    const caseDir = caseUploadDir(id)
     mkdirSync(caseDir, { recursive: true })
-    const filePath = path.join(caseDir, savedFileName)
     const buffer = Buffer.from(await file.arrayBuffer())
-    writeFileSync(filePath, buffer)
+    writeFileSync(path.join(caseDir, savedFileName), buffer)
+    // Persist relative to the uploads root — an absolute path would break the
+    // moment the app runs from a different directory or host.
+    const filePath = storedUploadPath(id, savedFileName)
 
     const documentName = optionalString(form.get("documentName")) ?? originalName
     const documentType = optionalString(form.get("documentType"))

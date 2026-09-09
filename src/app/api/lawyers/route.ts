@@ -1,11 +1,11 @@
 import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
-import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireNumber, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
+import { ApiError, handle, ok, okPaged, optionalString, parsePagination, readJson, requireAuth, requireEnum, requireNumber, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
 import { hashPassword, MAX_PASSWORD_LENGTH } from "@/lib/password"
 import { EMAIL_RE } from "@/lib/validation"
 import { audit } from "@/lib/audit"
+import { ACCOUNT_STATUSES, ACTIVE_CASE_STATUSES } from "@/lib/constants"
 
-const ACTIVE_CASE_STATUSES = ["ACTIVE", "PENDING", "ON_HOLD"]
 
 type LawyerWithUser = Prisma.LawyerGetPayload<{ include: { user: { select: { email: true } } } }>
 
@@ -53,7 +53,7 @@ export async function GET(request: Request) {
 
     const where: Prisma.LawyerWhereInput = {}
     if (specialization) where.specialization = specialization
-    if (status) where.status = status
+    if (status) where.status = requireEnum(status, ACCOUNT_STATUSES, "status")
     if (search) {
       where.OR = [
         { name: { contains: search } },
@@ -62,14 +62,24 @@ export async function GET(request: Request) {
       ]
     }
 
-    const lawyers = await db.lawyer.findMany({
-      where,
-      include: { user: { select: { email: true } }, _count: { select: { cases: true } } },
-      orderBy: { name: "asc" },
-    })
+    const page = parsePagination(searchParams)
+    const [lawyers, total] = await Promise.all([
+      db.lawyer.findMany({
+        where,
+        include: { user: { select: { email: true } }, _count: { select: { cases: true } } },
+        orderBy: { name: "asc" },
+        take: page.take,
+        skip: page.skip,
+      }),
+      db.lawyer.count({ where }),
+    ])
 
     const activeMap = await activeCaseCounts(lawyers.map((l) => l.id))
-    return ok(lawyers.map((l) => lawyerDTO(l, l._count.cases, activeMap.get(l.id) ?? 0)))
+    return okPaged(
+      lawyers.map((l) => lawyerDTO(l, l._count.cases, activeMap.get(l.id) ?? 0)),
+      total,
+      page
+    )
   })
 }
 
@@ -108,7 +118,7 @@ export async function POST(request: Request) {
       if (existing) throw new ApiError("A user with this email already exists.", 409)
     }
 
-    const profileData = { name, phone, email, barCouncilId, specialization, chamberName, experience, status: "ACTIVE" }
+    const profileData = { name, phone, email, barCouncilId, specialization, chamberName, experience, status: "ACTIVE" as const }
 
     const lawyer = createPortalAccess
       ? (
@@ -131,6 +141,10 @@ export async function POST(request: Request) {
             })
         ).lawyerProfile
       : await db.lawyer.create({ data: profileData })
+
+    // The nested `lawyerProfile: { create }` above always produces a row, but
+    // the include type is nullable — fail loudly rather than deref null.
+    if (!lawyer) throw new ApiError("Could not create the lawyer profile.", 500)
 
     await audit(user, "LAWYER_CREATE", "Lawyer", lawyer.id, lawyer.name,
       `Created lawyer ${name}${createPortalAccess ? " with portal access" : ""}`)

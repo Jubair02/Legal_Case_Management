@@ -42,14 +42,19 @@ export default function Home() {
   if (booting) {
     return (
       <LanguageProvider>
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-emerald-950 text-emerald-50">
-        <BrandMark className="h-14 w-14 animate-pulse shadow-lg shadow-emerald-950/60" />
-        <div className="text-center">
-          <p className="text-2xl font-semibold tracking-tight">AinSheba</p>
-          <p className="text-sm text-emerald-200/60">আইনসেবা · Case Management</p>
+        <div className="u-forest u-engrave u-bloom relative flex min-h-screen flex-col items-center justify-center overflow-hidden text-emerald-50">
+          <div className="u-rise relative z-10 flex flex-col items-center gap-5">
+            <BrandMark className="h-16 w-16 shadow-seal" />
+            <div className="text-center">
+              <p className="u-wordmark text-[1.75rem] font-semibold leading-none tracking-tight text-white">
+                AinSheba
+              </p>
+              <p className="mt-2 text-sm text-emerald-100/70">আইনসেবা · Case Management</p>
+            </div>
+            <hr className="u-rule w-28" />
+            <Loader2 aria-label="Loading" className="h-4 w-4 animate-spin text-brass" />
+          </div>
         </div>
-        <Loader2 className="h-5 w-5 animate-spin text-emerald-300" />
-      </div>
       </LanguageProvider>
     )
   }

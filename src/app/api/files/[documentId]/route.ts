@@ -1,11 +1,8 @@
 import { readFile } from "fs/promises"
-import path from "path"
 import { db } from "@/lib/db"
 import { ApiError, handle, requireAuth } from "@/lib/api-helpers"
 import { assertCaseReadAccess, isStaffOrAdmin } from "@/lib/permissions"
-
-/** Uploads root — file reads must never escape this directory. */
-const UPLOADS_ROOT = path.join(process.cwd(), "uploads")
+import { resolveUploadPath } from "@/lib/uploads"
 
 export async function GET(request: Request, { params }: { params: Promise<{ documentId: string }> }) {
   return handle(async () => {
@@ -26,13 +23,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ docu
       }
     }
 
-    if (!doc.filePath) throw new ApiError("File not found on disk.", 404)
-    const absPath = path.isAbsolute(doc.filePath) ? doc.filePath : path.join(process.cwd(), doc.filePath)
-
-    // Defense-in-depth: never serve anything outside the uploads directory.
-    if (!absPath.startsWith(UPLOADS_ROOT + path.sep)) {
-      throw new ApiError("File not found on disk.", 404)
-    }
+    // resolveUploadPath enforces containment: never serve anything outside
+    // the uploads directory.
+    const absPath = resolveUploadPath(doc.filePath)
+    if (!absPath) throw new ApiError("File not found on disk.", 404)
 
     let buf: Buffer
     try {

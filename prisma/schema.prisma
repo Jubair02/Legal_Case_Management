@@ -7,14 +7,94 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/* ---------------------------------------------------------------------------
+ * Domain enums.
+ *
+ * These were plain Strings with the allowed values written in a trailing
+ * comment, which meant the database itself would accept any text — a typo in
+ * a migration or a direct SQL fix could silently create an unreachable case.
+ * Postgres enforces them now. (Payment.paymentMethod stays a String: its
+ * values are display labels such as "Bank Transfer" and "bKash".)
+ * ------------------------------------------------------------------------ */
+
+enum Role {
+  ADMIN
+  LAWYER
+  CLIENT
+  STAFF
+}
+
+enum AccountStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ClientType {
+  INDIVIDUAL
+  COMPANY
+  ORGANIZATION
+}
+
+enum CaseStatus {
+  DRAFT
+  ACTIVE
+  PENDING
+  ON_HOLD
+  RESOLVED
+  CLOSED
+}
+
+enum CasePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum HearingStatus {
+  UPCOMING
+  COMPLETED
+  ADJOURNED
+  POSTPONED
+  CANCELLED
+}
+
+enum InvoiceStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum NotificationType {
+  INFO
+  HEARING
+  CASE
+  BILLING
+  SYSTEM
+}
+
+enum OutboundChannel {
+  SMS
+  EMAIL
+}
+
+enum OutboundStatus {
+  PENDING
+  SENT
+  SIMULATED
+  FAILED
+}
+
 model User {
   id            String         @id @default(cuid())
   name          String
   email         String         @unique
   phone         String?
   password      String
-  role          String         @default("CLIENT") // ADMIN | LAWYER | CLIENT | STAFF
-  status        String         @default("ACTIVE") // ACTIVE | INACTIVE
+  role          Role           @default(CLIENT)
+  status        AccountStatus  @default(ACTIVE)
   // Incremented whenever the password changes; JWTs carry the value they were
   // issued with and are rejected when it no longer matches (session revocation).
   sessionVersion Int            @default(0)
@@ -36,7 +116,7 @@ model Lawyer {
   specialization String?
   chamberName    String?
   experience     Int      @default(0)
-  status         String   @default("ACTIVE") // ACTIVE | INACTIVE
+  status         AccountStatus @default(ACTIVE)
   cases          Case[]   @relation("CaseLawyer")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -51,7 +131,7 @@ model Client {
   email      String?
   nid        String?
   address    String?
-  clientType String    @default("INDIVIDUAL") // INDIVIDUAL | COMPANY | ORGANIZATION
+  clientType ClientType @default(INDIVIDUAL)
   cases      Case[]
   invoices   Invoice[]
   createdAt  DateTime  @default(now())
@@ -70,8 +150,8 @@ model Case {
   court             String
   district          String?
   filingDate        DateTime?
-  status            String         @default("ACTIVE") // DRAFT | ACTIVE | PENDING | ON_HOLD | RESOLVED | CLOSED
-  priority          String         @default("MEDIUM") // LOW | MEDIUM | HIGH | URGENT
+  status            CaseStatus     @default(ACTIVE)
+  priority          CasePriority   @default(MEDIUM)
   oppositeParty     String?
   description       String?
   resolutionSummary String?
@@ -115,7 +195,7 @@ model Hearing {
   court           String?
   judge           String?
   hearingType     String?
-  status          String    @default("UPCOMING") // UPCOMING | COMPLETED | ADJOURNED | POSTPONED | CANCELLED
+  status          HearingStatus @default(UPCOMING)
   notes           String?
   summary         String?
   courtOrder      String?
@@ -138,9 +218,10 @@ model Invoice {
   client        Client    @relation(fields: [clientId], references: [id])
   billingType   String?
   description   String?
-  amount        Float
+  /// Money is exact: binary floats cannot represent 0.10 and drift on sums.
+  amount        Decimal   @db.Decimal(12, 2)
   dueDate       DateTime?
-  status        String    @default("UNPAID") // UNPAID | PARTIAL | PAID | OVERDUE | CANCELLED
+  status        InvoiceStatus @default(UNPAID)
   payments      Payment[]
   createdById   String?
   createdAt     DateTime  @default(now())
@@ -154,7 +235,7 @@ model Payment {
   id              String   @id @default(cuid())
   invoiceId       String
   invoice         Invoice  @relation(fields: [invoiceId], references: [id])
-  amount          Float
+  amount          Decimal  @db.Decimal(12, 2)
   paymentMethod   String // Cash | Bank Transfer | bKash | Nagad | Rocket
   paymentDate     DateTime @default(now())
   referenceNumber String?
@@ -184,7 +265,7 @@ model Notification {
   user      User     @relation(fields: [userId], references: [id])
   title     String
   message   String?
-  type      String   @default("INFO") // INFO | HEARING | CASE | BILLING | SYSTEM
+  type      NotificationType @default(INFO)
   link      String? // e.g. "case-detail:<caseId>"
   caseId    String?
   dedupeKey String?
@@ -203,7 +284,7 @@ model Notification {
  */
 model OutboundMessage {
   id            String    @id @default(cuid())
-  channel       String // SMS | EMAIL
+  channel       OutboundChannel
   recipient     String // phone number or email address
   recipientName String?
   userId        String? // linked portal user, when known
@@ -211,7 +292,7 @@ model OutboundMessage {
   body          String
   caseId        String?
   caseNumber    String? // denormalised snapshot for the outbox list
-  status        String    @default("PENDING") // PENDING | SENT | SIMULATED | FAILED
+  status        OutboundStatus @default(PENDING)
   providerRef   String?
   error         String?
   attempts      Int       @default(0)
@@ -222,6 +303,35 @@ model OutboundMessage {
   @@index([createdAt])
   @@index([status, createdAt])
   @@index([event])
+}
+
+/**
+ * Monotonic counters for human-facing document numbers (key = "INV-2026").
+ *
+ * Neither counting rows nor taking max() is safe: delete the newest invoice
+ * and both go backwards, so the next one reuses a number that a client may
+ * already have on paper. This only ever increments.
+ */
+model NumberSequence {
+  key   String @id
+  value Int    @default(0)
+}
+
+/**
+ * Failed sign-in buckets for brute-force protection.
+ *
+ * Kept in the database rather than process memory so the limit holds across
+ * every instance behind a load balancer — an in-memory Map would let an
+ * attacker get N attempts per replica. Rows are pruned by the scheduler sweep.
+ */
+model LoginAttempt {
+  key          String    @id
+  count        Int       @default(0)
+  firstAt      DateTime  @default(now())
+  blockedUntil DateTime?
+  updatedAt    DateTime  @updatedAt
+
+  @@index([updatedAt])
 }
 
 /** Single-row-per-key app settings (JSON encoded). Key "outbound" drives the SMS/Email bridge. */

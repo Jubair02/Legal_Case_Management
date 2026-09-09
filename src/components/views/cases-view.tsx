@@ -18,6 +18,7 @@ import {
   DISTRICTS,
 } from "@/lib/constants"
 import { statusLabel, useLanguage, type TranslateFn } from "@/lib/i18n/language"
+import { useResetOnOpen } from "@/lib/use-reset-on-open"
 import {
   caseStatusStyles,
   cn,
@@ -152,8 +153,7 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
   const statusOptions: readonly string[] = isEditing ? CASE_STATUSES : (["DRAFT", "ACTIVE", "PENDING"] as const)
 
   // Prefill when the dialog opens
-  useEffect(() => {
-    if (!open) return
+  useResetOnOpen(open ? (editing?.id ?? "new") : null, () => {
     const e = editing ?? null
     setCaseNumber(e?.caseNumber ?? "")
     setTitle(e?.title ?? "")
@@ -166,12 +166,17 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
     setStatus(e?.status ?? "ACTIVE")
     setPriority(e?.priority ?? "MEDIUM")
     setOppositeParty(e?.oppositeParty ?? "")
-    setDescription(e && "description" in e ? (e.description ?? "") : "")
-    setResolutionSummary(e && "resolutionSummary" in e ? (e.resolutionSummary ?? "") : "")
-    setOutcome(e && "outcome" in e ? (e.outcome ?? "") : "")
-  }, [open, editing])
+    // CaseListDTO omits the long-form fields; read them off the detail shape.
+    const detail = e as Partial<CaseDetailDTO> | null
+    setDescription(detail?.description ?? "")
+    setResolutionSummary(detail?.resolutionSummary ?? "")
+    setOutcome(detail?.outcome ?? "")
+  })
 
-  // Load client / lawyer options when opened
+  // Load client / lawyer options when opened. Synchronising with the network
+  // is what effects are for; the loading flag has to be set alongside the
+  // request it describes.
+  /* eslint-disable react-hooks/set-state-in-effect -- network sync, see above */
   useEffect(() => {
     if (!open) return
     let active = true
@@ -192,6 +197,7 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
       active = false
     }
   }, [open])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSubmit = async () => {
     // Client-side validation
