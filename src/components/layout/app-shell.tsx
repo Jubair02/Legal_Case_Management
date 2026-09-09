@@ -15,7 +15,6 @@ import {
   LogOut,
   Menu,
   Receipt,
-  Scale,
   ScrollText,
   Settings,
   Users,
@@ -24,6 +23,7 @@ import {
 import type { LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 
+import { BrandMark } from "@/components/shared/brand-mark"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -383,9 +383,7 @@ function SidebarBrand() {
   const { t } = useLanguage()
   return (
     <div className="flex items-center gap-3 px-5 pb-2 pt-5">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-md shadow-emerald-950/50">
-        <Scale className="h-5 w-5" />
-      </span>
+      <BrandMark className="h-10 w-10 shrink-0 shadow-md shadow-emerald-950/50" />
       <span className="min-w-0">
         <span className="block text-base font-semibold leading-tight text-white">{t("common.appName")}</span>
         <span className="block truncate text-xs text-emerald-200/60">{t("shell.brandSub")}</span>
@@ -593,9 +591,7 @@ export function AppShell({ user, onLogout }: AppShellProps) {
               <Menu className="h-5 w-5" />
             </Button>
             <div className="flex items-center gap-2 md:hidden">
-              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-600 text-white">
-                <Scale className="h-4 w-4" />
-              </span>
+              <BrandMark className="h-7 w-7" />
               <span className="text-sm font-semibold">{t("common.appName")}</span>
             </div>
             <h2 className="hidden truncate text-sm font-semibold tracking-tight md:block md:text-base">{pageTitle}</h2>

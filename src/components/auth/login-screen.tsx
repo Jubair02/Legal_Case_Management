@@ -12,12 +12,12 @@ import {
   Loader2,
   LogIn,
   Receipt,
-  Scale,
   User as UserIcon,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 
+import { BrandMark } from "@/components/shared/brand-mark"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -112,9 +112,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
         />
 
         <div className="relative flex items-center gap-3">
-          <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-lg shadow-emerald-950/60">
-            <Scale className="h-6 w-6" />
-          </span>
+          <BrandMark className="h-12 w-12 shadow-lg shadow-emerald-950/60" />
           <div>
             <p className="text-2xl font-bold tracking-tight text-white">{t("common.appName")}</p>
             <p className="text-sm text-emerald-200/70">আইনসেবা</p>
@@ -150,9 +148,7 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
       <div className="flex flex-1 flex-col items-center justify-center p-4 md:p-8">
         <div className="w-full max-w-md space-y-5">
           <div className="flex flex-col items-center gap-2 text-center lg:hidden">
-            <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-600 text-white">
-              <Scale className="h-6 w-6" />
-            </span>
+            <BrandMark className="h-12 w-12" />
             <p className="text-xl font-semibold tracking-tight">{t("common.appName")}</p>
             <p className="text-xs text-muted-foreground">আইনসেবা · {t("common.appTagline")}</p>
           </div>
