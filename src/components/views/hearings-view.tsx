@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import {
   CalendarClock,
@@ -13,27 +13,19 @@ import {
   Landmark,
   RotateCcw,
   Search,
-  X,
 } from "lucide-react"
-import type { LucideIcon } from "lucide-react"
 
 import { EmptyState } from "@/components/shared/empty-state"
 import { LoadingBlock } from "@/components/shared/loading-block"
 import { PageHeader } from "@/components/shared/page-header"
 import { DialogHead, FieldGroup, RequiredMark } from "@/components/shared/dialog-chrome"
 import { StatCard } from "@/components/shared/stat-card"
+import { SearchField, Toolbar } from "@/components/shared/toolbar"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { useApiData } from "@/hooks/use-api-data"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -938,67 +930,54 @@ export default function HearingsView({ user, navigate }: ViewProps) {
       </PageHeader>
 
       {/* Filter + search toolbar */}
-      <div className="u-rise rounded-xl border border-border/80 bg-card p-3 shadow-soft">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div role="group" aria-label={t("hearings.filterLabel")} className="-mx-1 flex overflow-x-auto px-1 pb-0.5">
-            <div className="inline-flex gap-1 rounded-lg bg-paper-shade p-1 ring-1 ring-border/70">
-              {FILTERS.map((f) => {
-                const active = filter === f.key
-                return (
-                  <button
-                    key={f.key}
-                    type="button"
-                    onClick={() => setFilter(f.key)}
-                    aria-pressed={active}
-                    className={cn(
-                      "flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-all duration-200",
-                      "focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
-                      active
-                        ? "bg-primary text-primary-foreground shadow-soft"
-                        : "text-muted-foreground hover:bg-card hover:text-foreground"
-                    )}
-                  >
-                    {t(f.labelKey)}
-                    {active && data ? <span className="text-xs tabular-nums opacity-75">{data.length}</span> : null}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="relative lg:w-72">
-            <Search aria-hidden className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label={t("hearings.searchLabel")}
-              placeholder={t("hearings.searchPh")}
-              className="pr-9 pl-9"
-            />
-            {searching ? (
-              <button
-                type="button"
-                onClick={() => setQuery("")}
-                aria-label={t("hearings.clearSearch")}
-                className="absolute top-1/2 right-1.5 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-paper-shade hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
+      <Toolbar
+        note={
+          hasData ? (
+            <>
+              {searching
+                ? t("hearings.matchCount", { shown: visible.length, total: hearings.length })
+                : t(metrics.total === 1 ? "hearings.countHearing" : "hearings.countHearings", {
+                    count: metrics.total,
+                  })}
+              {metrics.courts > 0 ? ` · ${t("hearings.countCourts", { count: metrics.courts })}` : ""}
+            </>
+          ) : undefined
+        }
+      >
+        <div role="group" aria-label={t("hearings.filterLabel")} className="-mx-1 flex overflow-x-auto px-1 pb-0.5">
+          <div className="inline-flex gap-1 rounded-lg bg-paper-shade p-1 ring-1 ring-border/70">
+            {FILTERS.map((f) => {
+              const active = filter === f.key
+              return (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setFilter(f.key)}
+                  aria-pressed={active}
+                  className={cn(
+                    "flex cursor-pointer items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium whitespace-nowrap transition-all duration-200",
+                    "focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+                    active
+                      ? "bg-primary text-primary-foreground shadow-soft"
+                      : "text-muted-foreground hover:bg-card hover:text-foreground"
+                  )}
+                >
+                  {t(f.labelKey)}
+                  {active && data ? <span className="text-xs tabular-nums opacity-75">{data.length}</span> : null}
+                </button>
+              )
+            })}
           </div>
         </div>
 
-        {hasData ? (
-          <p className="mt-2.5 px-1 text-xs text-muted-foreground" aria-live="polite">
-            {searching
-              ? t("hearings.matchCount", { shown: visible.length, total: hearings.length })
-              : t(metrics.total === 1 ? "hearings.countHearing" : "hearings.countHearings", {
-                  count: metrics.total,
-                })}
-            {metrics.courts > 0 ? ` · ${t("hearings.countCourts", { count: metrics.courts })}` : ""}
-          </p>
-        ) : null}
-      </div>
+        <SearchField
+          value={query}
+          onChange={setQuery}
+          placeholder={t("hearings.searchPh")}
+          ariaLabel={t("hearings.searchLabel")}
+          className="lg:w-72"
+        />
+      </Toolbar>
 
       {/* Tiles summarise the loaded page for the active filter — hidden when a
           search narrows it to nothing, where every value would read zero. */}

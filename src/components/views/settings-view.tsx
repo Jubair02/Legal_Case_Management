@@ -37,6 +37,7 @@ import { LoadingBlock } from "@/components/shared/loading-block"
 import { PageHeader } from "@/components/shared/page-header"
 import { SectionCard } from "@/components/shared/section-card"
 import { StatCard } from "@/components/shared/stat-card"
+import { SearchField, Toolbar } from "@/components/shared/toolbar"
 import { useApiData } from "@/hooks/use-api-data"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -401,6 +402,12 @@ function UsersPanel() {
     setFormOpen(true)
   }
 
+  const clearAll = () => {
+    setRoleFilter(ALL)
+    setStatusFilter(ALL)
+    setSearch("")
+  }
+
   const hasFilters = roleFilter !== ALL || statusFilter !== ALL || search.trim() !== ""
   const searching = search.trim().length > 0
   const loadingFirst = loading && !data
@@ -437,91 +444,65 @@ function UsersPanel() {
   return (
     <div className="space-y-6">
       {/* ------------------------------ Toolbar ------------------------------ */}
-      <div className="u-rise overflow-hidden rounded-xl border border-border/80 bg-card shadow-soft">
-        <div className="flex flex-col gap-3 p-3 lg:flex-row lg:items-center">
-          <div className="relative lg:flex-1">
-            <Search
-              aria-hidden
-              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t("settings.searchUsers")}
-              aria-label={t("settings.searchUsers")}
-              className="pl-9 pr-9"
-            />
-            {searching ? (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                aria-label={t("settings.clearSearch")}
-                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-paper-shade hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
-          </div>
+      <Toolbar
+        note={
+          hasData || hasFilters
+            ? t(filtered.length === 1 ? "settings.userCountOne" : "settings.userCountOther", {
+                count: filtered.length,
+              })
+            : undefined
+        }
+        action={
+          hasFilters ? (
+            <Button variant="ghost" size="sm" className="h-7 cursor-pointer" onClick={clearAll}>
+              <X className="h-3.5 w-3.5" /> {t("settings.clearFilters")}
+            </Button>
+          ) : undefined
+        }
+      >
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          placeholder={t("settings.searchUsers")}
+          ariaLabel={t("settings.searchUsers")}
+          className="lg:flex-1"
+        />
 
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-            <Select value={roleFilter} onValueChange={setRoleFilter}>
-              <SelectTrigger className="w-full sm:w-44" aria-label={t("settings.allRoles")}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>{t("settings.allRoles")}</SelectItem>
-                {ROLES.map((r) => (
-                  <SelectItem key={r} value={r}>
-                    {statusLabel(r, t)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+          <Select value={roleFilter} onValueChange={setRoleFilter}>
+            <SelectTrigger className="w-full sm:w-44" aria-label={t("settings.allRoles")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>{t("settings.allRoles")}</SelectItem>
+              {ROLES.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {statusLabel(r, t)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-36" aria-label={t("settings.allStatuses")}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>{t("settings.allStatuses")}</SelectItem>
-                {ACCOUNT_STATUSES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {statusLabel(s, t)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-36" aria-label={t("settings.allStatuses")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>{t("settings.allStatuses")}</SelectItem>
+              {ACCOUNT_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {statusLabel(s, t)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-          <Button className="cursor-pointer sm:shrink-0" onClick={() => openEdit(null)}>
+          <Button className="col-span-2 cursor-pointer sm:col-span-1 sm:shrink-0" onClick={() => openEdit(null)}>
             <UserPlus className="h-4 w-4" /> {t("settings.addUser")}
           </Button>
         </div>
+      </Toolbar>
 
-        {hasData || hasFilters ? (
-          <div className="flex items-center justify-between gap-2 border-t border-border/70 px-4 py-2">
-            <p className="text-xs text-muted-foreground" aria-live="polite">
-              {t(filtered.length === 1 ? "settings.userCountOne" : "settings.userCountOther", {
-                count: filtered.length,
-              })}
-            </p>
-            {hasFilters ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 shrink-0 cursor-pointer"
-                onClick={() => {
-                  setRoleFilter(ALL)
-                  setStatusFilter(ALL)
-                  setSearch("")
-                }}
-              >
-                <X className="h-3.5 w-3.5" /> {t("settings.clearFilters")}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
 
       {/* ------------------------------- Vitals ------------------------------- */}
       {hasData ? (
@@ -586,11 +567,7 @@ function UsersPanel() {
                 variant="outline"
                 size="sm"
                 className="cursor-pointer"
-                onClick={() => {
-                  setRoleFilter(ALL)
-                  setStatusFilter(ALL)
-                  setSearch("")
-                }}
+                onClick={clearAll}
               >
                 {t("settings.clearFilters")}
               </Button>

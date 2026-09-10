@@ -19,6 +19,7 @@ import { toast } from "sonner"
 import { EmptyState } from "@/components/shared/empty-state"
 import { LoadingBlock } from "@/components/shared/loading-block"
 import { PageHeader } from "@/components/shared/page-header"
+import { Toolbar } from "@/components/shared/toolbar"
 import { useApiData } from "@/hooks/use-api-data"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -175,6 +176,11 @@ export default function NotificationsView({ navigate }: ViewProps) {
     navigate("case-detail", { id: caseId })
   }
 
+  const clearAll = () => {
+    setFilter("all")
+    setTypeFilter(ALL)
+  }
+
   const hasFilters = filter !== "all" || typeFilter !== ALL
   const loadingFirst = loading && !data
 
@@ -296,14 +302,28 @@ export default function NotificationsView({ navigate }: ViewProps) {
       </PageHeader>
 
       {/* ------------------------------ Toolbar ------------------------------ */}
-      <div className="u-rise overflow-hidden rounded-xl border border-border/80 bg-card shadow-soft">
-        <div className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div
-            role="group"
-            aria-label={t("notifications.filterAria")}
-            className="-mx-1 flex overflow-x-auto px-1 pb-0.5"
-          >
-            <div className="inline-flex gap-1 rounded-lg bg-paper-shade p-1 ring-1 ring-border/70">
+      <Toolbar
+        note={
+          shown.length > 0
+            ? t(shown.length === 1 ? "notifications.countOne" : "notifications.countOther", {
+                count: shown.length,
+              })
+            : undefined
+        }
+        action={
+          hasFilters ? (
+            <Button variant="ghost" size="sm" className="h-7 cursor-pointer" onClick={clearAll}>
+              {t("notifications.clearFilters")}
+            </Button>
+          ) : undefined
+        }
+      >
+        <div
+          role="group"
+          aria-label={t("notifications.filterAria")}
+          className="-mx-1 flex overflow-x-auto px-1 pb-0.5"
+        >
+          <div className="inline-flex gap-1 rounded-lg bg-paper-shade p-1 ring-1 ring-border/70">
               {FILTERS.map((f) => {
                 const active = filter === f.key
                 const count = f.key === "unread" ? unreadCount : list.length
@@ -342,31 +362,7 @@ export default function NotificationsView({ navigate }: ViewProps) {
               ))}
             </SelectContent>
           </Select>
-        </div>
-
-        {shown.length > 0 ? (
-          <div className="flex items-center justify-between gap-2 border-t border-border/70 px-4 py-2">
-            <p className="text-xs text-muted-foreground" aria-live="polite">
-              {t(shown.length === 1 ? "notifications.countOne" : "notifications.countOther", {
-                count: shown.length,
-              })}
-            </p>
-            {hasFilters ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 shrink-0 cursor-pointer"
-                onClick={() => {
-                  setFilter("all")
-                  setTypeFilter(ALL)
-                }}
-              >
-                {t("notifications.clearFilters")}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+      </Toolbar>
 
       {/* -------------------------------- Feed -------------------------------- */}
       {loadingFirst ? (
@@ -395,10 +391,7 @@ export default function NotificationsView({ navigate }: ViewProps) {
                 variant="outline"
                 size="sm"
                 className="cursor-pointer"
-                onClick={() => {
-                  setFilter("all")
-                  setTypeFilter(ALL)
-                }}
+                onClick={clearAll}
               >
                 {t("notifications.clearFilters")}
               </Button>

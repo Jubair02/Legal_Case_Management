@@ -387,27 +387,36 @@ export default function ReportsView({ user }: ViewProps) {
             {cr.byLawyer.length === 0 ? (
               <EmptyState variant="inline" icon={Users} title={t("reports.noLawyers")} />
             ) : (
-              <div className="mt-2 overflow-x-auto rounded-lg border border-border/70">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="hover:bg-transparent">
-                      <Th>{t("reports.lawyer")}</Th>
-                      <Th className="text-right">{t("reports.total")}</Th>
-                      <Th className="text-right">{t("status.active")}</Th>
-                      <Th className="text-right">{t("status.closed")}</Th>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {cr.byLawyer.map((l) => (
-                      <TableRow key={l.lawyerId}>
-                        <TableCell className="font-medium text-ink">{l.lawyerName}</TableCell>
-                        <TableCell className="text-right font-semibold tabular-nums text-ink">{l.total}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{l.active}</TableCell>
-                        <TableCell className="text-right tabular-nums text-muted-foreground">{l.closed}</TableCell>
+              <div className="relative mt-2">
+                <div className="overflow-x-auto rounded-lg border border-border/70">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="hover:bg-transparent">
+                        <Th>{t("reports.lawyer")}</Th>
+                        <Th className="text-right">{t("reports.total")}</Th>
+                        <Th className="text-right">{t("status.active")}</Th>
+                        <Th className="text-right">{t("status.closed")}</Th>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {cr.byLawyer.map((l) => (
+                        <TableRow key={l.lawyerId}>
+                          <TableCell className="font-medium text-ink">{l.lawyerName}</TableCell>
+                          <TableCell className="text-right font-semibold tabular-nums text-ink">{l.total}</TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">{l.active}</TableCell>
+                          <TableCell className="text-right tabular-nums text-muted-foreground">{l.closed}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                {/* Four columns of counts scroll rather than stack — cards for
+                    three numbers per row would read worse. The fade is the
+                    affordance that there is more to the right. */}
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-y-px right-px w-8 rounded-r-lg bg-gradient-to-l from-card to-transparent sm:hidden"
+                />
               </div>
             )}
           </div>

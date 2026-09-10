@@ -141,6 +141,18 @@ export const enCore: Record<string, string> = {
   "shell.footerBuiltFor": "Built for chambers, advocates & clients",
   "shell.skipToContent": "Skip to content",
 
+  /* ------------------------------- errors.* -------------------------------
+     404 / crash surfaces. Reached when a route does not exist or a page
+     throws — the only screens a user meets outside the chamber shell. */
+  "errors.notFoundTitle": "We couldn't find that page",
+  "errors.notFoundDesc":
+    "The address may be mistyped, or the page may have moved. Everything else is where you left it.",
+  "errors.backToDashboard": "Back to dashboard",
+  "errors.crashTitle": "This page didn't load",
+  "errors.crashDesc":
+    "Something went wrong while rendering it. Trying again usually clears it — the rest of the app is unaffected.",
+  "errors.reference": "Reference: {digest}",
+
   /* ------------------------------- login.* ------------------------------- */
   "login.title": "Sign in to your chamber",
   "login.subtitle": "Enter your email and password to access your cases.",
@@ -477,6 +489,16 @@ export const bnCore: Record<string, string> = {
   "shell.footerTagline": "বাংলাদেশের জন্য আইন সেবা ব্যবস্থাপনা",
   "shell.footerBuiltFor": "চেম্বার, আইনজীবী ও মক্কেলদের জন্য নির্মিত",
   "shell.skipToContent": "মূল কন্টেন্টে যান",
+
+  /* ------------------------------- errors.* ------------------------------- */
+  "errors.notFoundTitle": "পৃষ্ঠাটি খুঁজে পাওয়া যায়নি",
+  "errors.notFoundDesc":
+    "ঠিকানাটি ভুল টাইপ হয়ে থাকতে পারে, বা পৃষ্ঠাটি সরানো হয়েছে। বাকি সবকিছু আগের জায়গাতেই আছে।",
+  "errors.backToDashboard": "ড্যাশবোর্ডে ফিরে যান",
+  "errors.crashTitle": "পৃষ্ঠাটি লোড হয়নি",
+  "errors.crashDesc":
+    "এটি দেখানোর সময় কিছু ভুল হয়েছে। আবার চেষ্টা করলে সাধারণত ঠিক হয়ে যায় — অ্যাপের বাকি অংশ ঠিক আছে।",
+  "errors.reference": "রেফারেন্স: {digest}",
 
   /* ------------------------------- login.* ------------------------------- */
   "login.title": "আপনার চেম্বারে সাইন ইন করুন",

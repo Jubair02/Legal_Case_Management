@@ -25,6 +25,7 @@ import { LoadingBlock } from "@/components/shared/loading-block"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatCard } from "@/components/shared/stat-card"
 import { StatusBadge } from "@/components/shared/status-badge"
+import { SearchField, Toolbar } from "@/components/shared/toolbar"
 import { useApiData } from "@/hooks/use-api-data"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog"
@@ -747,85 +748,63 @@ export default function LawyersView({ user, navigate, params }: ViewProps) {
       </PageHeader>
 
       {/* ------------------------------ Toolbar ------------------------------ */}
-      <div className="u-rise overflow-hidden rounded-xl border border-border/80 bg-card shadow-soft">
-        <div className="flex flex-col gap-3 p-3 lg:flex-row lg:items-center">
-          <div className="relative lg:flex-1">
-            <Search
-              aria-hidden
-              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t("lawyers.searchPh")}
-              aria-label={t("lawyers.searchPh")}
-              className="pl-9 pr-9"
-            />
-            {searching ? (
-              <button
-                type="button"
-                onClick={() => setSearch("")}
-                aria-label={t("common.clearSearch")}
-                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-paper-shade hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-            <Select value={specFilter} onValueChange={setSpecFilter}>
-              <SelectTrigger className="w-full sm:w-48" aria-label={t("lawyers.allSpecs")}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>{t("lawyers.allSpecs")}</SelectItem>
-                {SPECIALIZATIONS.map((sp) => (
-                  <SelectItem key={sp} value={sp}>
-                    {enumLabel("lawyers.spec", sp, t)}
-                  </SelectItem>
-                ))}
-                {/* The filter already understood "no specialization"; nothing offered it. */}
-                <SelectItem value={NONE}>{t("ui.notSpecified")}</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-full sm:w-36" aria-label={t("ui.allStatuses")}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL}>{t("ui.allStatuses")}</SelectItem>
-                {ACCOUNT_STATUSES.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {statusLabel(s, t)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {hasData || hasFilters ? (
-          <div className="flex items-center justify-between gap-2 border-t border-border/70 px-4 py-2">
-            <p className="text-xs text-muted-foreground" aria-live="polite">
-              {t(filtered.length === 1 ? "lawyers.countOne" : "lawyers.countOther", {
+      <Toolbar
+        note={
+          hasData || hasFilters
+            ? t(filtered.length === 1 ? "lawyers.countOne" : "lawyers.countOther", {
                 count: filtered.length,
-              })}
-            </p>
-            {hasFilters ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 shrink-0 cursor-pointer"
-                onClick={clearFilters}
-              >
-                <X className="h-3.5 w-3.5" /> {t("lawyers.clearFilters")}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+              })
+            : undefined
+        }
+        action={
+          hasFilters ? (
+            <Button variant="ghost" size="sm" className="h-7 cursor-pointer" onClick={clearFilters}>
+              <X className="h-3.5 w-3.5" /> {t("lawyers.clearFilters")}
+            </Button>
+          ) : undefined
+        }
+      >
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          placeholder={t("lawyers.searchPh")}
+          ariaLabel={t("lawyers.searchPh")}
+          className="lg:flex-1"
+        />
+
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+          <Select value={specFilter} onValueChange={setSpecFilter}>
+            <SelectTrigger className="w-full sm:w-48" aria-label={t("lawyers.allSpecs")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>{t("lawyers.allSpecs")}</SelectItem>
+              {SPECIALIZATIONS.map((sp) => (
+                <SelectItem key={sp} value={sp}>
+                  {enumLabel("lawyers.spec", sp, t)}
+                </SelectItem>
+              ))}
+              {/* The filter already understood "no specialization"; nothing offered it. */}
+              <SelectItem value={NONE}>{t("ui.notSpecified")}</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-36" aria-label={t("ui.allStatuses")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>{t("ui.allStatuses")}</SelectItem>
+              {ACCOUNT_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {statusLabel(s, t)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </Toolbar>
+
 
       {/* ------------------------------- Vitals ------------------------------- */}
       {hasData ? (

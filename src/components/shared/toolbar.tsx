@@ -5,24 +5,73 @@ import type { ReactNode } from "react"
 
 import { Input } from "@/components/ui/input"
 import { useLanguage } from "@/lib/i18n/language"
+import { cn } from "@/lib/utils"
 
 /**
  * Shared filter-bar chrome for the chamber design system.
  *
  * The card-framed toolbar started on the hearings page and is now used by
- * billing and the client roster; it lives here so the list surfaces cannot
- * drift apart. See the surface primitives (`u-rise`) in globals.css.
+ * every list surface — cases, clients, lawyers, documents, billing, the user
+ * directory and the notification feed. It lives here so they cannot drift
+ * apart. See the surface primitives (`u-rise`) in globals.css.
  */
 
-/** Card-framed filter bar with an optional live-region count line beneath it. */
-export function Toolbar({ children, note }: { children: ReactNode; note?: ReactNode }) {
+export interface ToolbarProps {
+  /** Primary row: segmented filters, search, a create button. */
+  children: ReactNode
+  /** Optional second row of selects, separated by a hairline. */
+  filters?: ReactNode
+  /** Result count / description, announced politely as filters change. */
+  note?: ReactNode
+  /** Right-aligned control in the footer strip, e.g. "Clear filters". */
+  action?: ReactNode
+}
+
+/** Card-framed filter bar: a primary row, optional filter row, optional footer. */
+export function Toolbar({ children, filters, note, action }: ToolbarProps) {
+  // A second row or a footer action needs full-bleed dividers, so padding
+  // moves onto the rows. Single-row toolbars keep the original padded shell,
+  // leaving the surfaces that already used it pixel-identical.
+  const banded = Boolean(filters || action)
+
   return (
     <div
-      className="u-rise rounded-xl border border-border/80 bg-card p-3 shadow-soft"
+      className={cn(
+        "u-rise rounded-xl border border-border/80 bg-card shadow-soft",
+        banded ? "overflow-hidden" : "p-3"
+      )}
       style={{ "--d": "60ms" } as React.CSSProperties}
     >
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">{children}</div>
-      {note ? (
+      <div
+        className={cn(
+          "flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between",
+          banded && "p-3"
+        )}
+      >
+        {children}
+      </div>
+
+      {filters ? (
+        <>
+          <span aria-hidden className="mx-3 block h-px bg-border/70" />
+          <div className="p-3">{filters}</div>
+        </>
+      ) : null}
+
+      {banded ? (
+        note || action ? (
+          <div className="flex items-center justify-between gap-2 border-t border-border/70 px-4 py-2">
+            {note ? (
+              <p className="min-w-0 text-xs text-muted-foreground" aria-live="polite">
+                {note}
+              </p>
+            ) : (
+              <span />
+            )}
+            {action ? <div className="shrink-0">{action}</div> : null}
+          </div>
+        ) : null
+      ) : note ? (
         <p className="mt-2.5 px-1 text-xs text-muted-foreground" aria-live="polite">
           {note}
         </p>

@@ -32,6 +32,7 @@ import { EmptyState } from "@/components/shared/empty-state"
 import { LoadingBlock } from "@/components/shared/loading-block"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatCard } from "@/components/shared/stat-card"
+import { Toolbar } from "@/components/shared/toolbar"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { useApiData } from "@/hooks/use-api-data"
 import { Badge } from "@/components/ui/badge"
@@ -907,142 +908,136 @@ export default function DocumentsView({ user }: ViewProps) {
               </div>
 
               {/* ------------------------------ Toolbar ------------------------------ */}
-              <div className="u-rise overflow-hidden rounded-xl border border-border/80 bg-card shadow-soft">
-                <div className="flex flex-col gap-3 p-3 lg:flex-row lg:items-center lg:justify-between">
-                  {canWrite ? (
-                    <div
-                      role="group"
-                      aria-label={t("documents.accessFilterLabel")}
-                      className="-mx-1 flex overflow-x-auto px-1 pb-0.5"
-                    >
-                      <div className="inline-flex gap-1 rounded-lg bg-paper-shade p-1 ring-1 ring-border/70">
-                        {ACCESS_TABS.map((tab) => {
-                          const active = access === tab.key
-                          const count =
-                            tab.key === "all"
-                              ? metrics.total
-                              : tab.key === "shared"
-                                ? metrics.shared
-                                : metrics.total - metrics.shared
-                          return (
-                            <button
-                              key={tab.key}
-                              type="button"
-                              onClick={() => setAccess(tab.key)}
-                              aria-pressed={active}
-                              className={cn(
-                                "flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all duration-200",
-                                "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
-                                active
-                                  ? "bg-primary text-primary-foreground shadow-soft"
-                                  : "text-muted-foreground hover:bg-card hover:text-foreground"
-                              )}
-                            >
-                              {t(tab.labelKey)}
-                              <span className="text-xs tabular-nums opacity-75">{count}</span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  <div className={cn("relative", canWrite ? "lg:w-72" : "lg:w-full")}>
-                    <Search
-                      aria-hidden
-                      className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-                    />
-                    <Input
-                      value={docQuery}
-                      onChange={(e) => setDocQuery(e.target.value)}
-                      placeholder={t("documents.searchDocsPh")}
-                      aria-label={t("documents.searchDocsAria")}
-                      className="pl-9 pr-9"
-                    />
-                    {docQuery ? (
-                      <button
-                        type="button"
-                        onClick={() => setDocQuery("")}
-                        aria-label={t("cases.clearSearch")}
-                        className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-paper-shade hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div aria-hidden className="mx-3 h-px bg-border/70" />
-
-                <div className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-3">
-                  <Select value={docType} onValueChange={setDocType}>
-                    <SelectTrigger className="w-full cursor-pointer" aria-label={t("ui.allTypes")}>
-                      <SelectValue placeholder={t("ui.allTypes")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={ALL}>{t("ui.allTypes")}</SelectItem>
-                      {DOCUMENT_TYPES.map((dt) => (
-                        <SelectItem key={dt} value={dt}>
-                          {enumLabel("documents.type", dt, t)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <Select value={docCategory} onValueChange={setDocCategory}>
-                    <SelectTrigger
-                      className="w-full cursor-pointer"
-                      aria-label={t("documents.allCategories")}
-                    >
-                      <SelectValue placeholder={t("documents.allCategories")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={ALL}>{t("documents.allCategories")}</SelectItem>
-                      {DOCUMENT_CATEGORIES.map((dc) => (
-                        <SelectItem key={dc} value={dc}>
-                          {enumLabel("documents.cat", dc, t)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-                    <SelectTrigger
-                      className="w-full cursor-pointer"
-                      aria-label={t("documents.sortAria")}
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SORTS.map((s) => (
-                        <SelectItem key={s.key} value={s.key}>
-                          {t("cases.sortLabel")}: {t(s.labelKey)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex items-center justify-between gap-2 border-t border-border/70 px-4 py-2">
-                  <p className="min-w-0 truncate text-xs text-muted-foreground" aria-live="polite">
+              <Toolbar
+                note={
+                  <>
                     {t(visible.length === 1 ? "documents.countOne" : "documents.countOther", {
                       count: visible.length,
                     })}
                     {" · "}
                     {accessDescription}
-                  </p>
-                  {hasDocFilters ? (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 shrink-0 cursor-pointer"
-                      onClick={clearDocFilters}
-                    >
+                  </>
+                }
+                action={
+                  hasDocFilters ? (
+                    <Button variant="ghost" size="sm" className="h-7 cursor-pointer" onClick={clearDocFilters}>
                       <X className="h-3.5 w-3.5" /> {t("cases.clearFilters")}
                     </Button>
+                  ) : undefined
+                }
+                filters={
+                  <div className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-3">
+                    <Select value={docType} onValueChange={setDocType}>
+                      <SelectTrigger className="w-full cursor-pointer" aria-label={t("ui.allTypes")}>
+                        <SelectValue placeholder={t("ui.allTypes")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL}>{t("ui.allTypes")}</SelectItem>
+                        {DOCUMENT_TYPES.map((dt) => (
+                          <SelectItem key={dt} value={dt}>
+                            {enumLabel("documents.type", dt, t)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Select value={docCategory} onValueChange={setDocCategory}>
+                      <SelectTrigger
+                        className="w-full cursor-pointer"
+                        aria-label={t("documents.allCategories")}
+                      >
+                        <SelectValue placeholder={t("documents.allCategories")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL}>{t("documents.allCategories")}</SelectItem>
+                        {DOCUMENT_CATEGORIES.map((dc) => (
+                          <SelectItem key={dc} value={dc}>
+                            {enumLabel("documents.cat", dc, t)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
+                      <SelectTrigger
+                        className="w-full cursor-pointer"
+                        aria-label={t("documents.sortAria")}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SORTS.map((s) => (
+                          <SelectItem key={s.key} value={s.key}>
+                            {t("cases.sortLabel")}: {t(s.labelKey)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                }
+              >
+                {canWrite ? (
+                  <div
+                    role="group"
+                    aria-label={t("documents.accessFilterLabel")}
+                    className="-mx-1 flex overflow-x-auto px-1 pb-0.5"
+                  >
+                    <div className="inline-flex gap-1 rounded-lg bg-paper-shade p-1 ring-1 ring-border/70">
+                      {ACCESS_TABS.map((tab) => {
+                        const active = access === tab.key
+                        const count =
+                          tab.key === "all"
+                            ? metrics.total
+                            : tab.key === "shared"
+                              ? metrics.shared
+                              : metrics.total - metrics.shared
+                        return (
+                          <button
+                            key={tab.key}
+                            type="button"
+                            onClick={() => setAccess(tab.key)}
+                            aria-pressed={active}
+                            className={cn(
+                              "flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all duration-200",
+                              "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                              active
+                                ? "bg-primary text-primary-foreground shadow-soft"
+                                : "text-muted-foreground hover:bg-card hover:text-foreground"
+                            )}
+                          >
+                            {t(tab.labelKey)}
+                            <span className="text-xs tabular-nums opacity-75">{count}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className={cn("relative", canWrite ? "lg:w-72" : "lg:w-full")}>
+                  <Search
+                    aria-hidden
+                    className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <Input
+                    value={docQuery}
+                    onChange={(e) => setDocQuery(e.target.value)}
+                    placeholder={t("documents.searchDocsPh")}
+                    aria-label={t("documents.searchDocsAria")}
+                    className="pl-9 pr-9"
+                  />
+                  {docQuery ? (
+                    <button
+                      type="button"
+                      onClick={() => setDocQuery("")}
+                      aria-label={t("cases.clearSearch")}
+                      className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-paper-shade hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
                   ) : null}
                 </div>
-              </div>
+              </Toolbar>
 
               {/* --------------------------- Document ledger --------------------------- */}
               <section className="u-rise overflow-hidden rounded-xl border border-border/80 bg-card shadow-soft">

@@ -22,6 +22,7 @@ import { LoadingBlock } from "@/components/shared/loading-block"
 import { PageHeader } from "@/components/shared/page-header"
 import { StatCard } from "@/components/shared/stat-card"
 import { StatusBadge } from "@/components/shared/status-badge"
+import { SearchField, Toolbar } from "@/components/shared/toolbar"
 import { useApiData } from "@/hooks/use-api-data"
 import { apiGet, apiSend } from "@/lib/api-client"
 import {
@@ -751,136 +752,122 @@ export default function CasesView({ user, navigate }: ViewProps) {
       </PageHeader>
 
       {/* ------------------------------ Toolbar ------------------------------ */}
-      <div className="u-rise overflow-hidden rounded-xl border border-border/80 bg-card shadow-soft">
-        <div className="flex flex-col gap-3 p-3 lg:flex-row lg:items-center lg:justify-between">
-          <div
-            role="group"
-            aria-label={t("cases.filterLabel")}
-            className="-mx-1 flex overflow-x-auto px-1 pb-0.5"
-          >
-            <div className="inline-flex gap-1 rounded-lg bg-paper-shade p-1 ring-1 ring-border/70">
-              {VIEW_TABS.map((tab) => {
-                const active = view === tab.key
-                return (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setView(tab.key)}
-                    aria-pressed={active}
-                    className={cn(
-                      "flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all duration-200",
-                      "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
-                      active
-                        ? "bg-primary text-primary-foreground shadow-soft"
-                        : "text-muted-foreground hover:bg-card hover:text-foreground"
-                    )}
-                  >
-                    {t(tab.labelKey)}
-                    {active && data ? (
-                      <span className="text-xs tabular-nums opacity-75">{rows.length}</span>
-                    ) : null}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="relative lg:w-80">
-            <Search aria-hidden className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              aria-label={t("cases.searchAria")}
-              placeholder={t("cases.searchPh")}
-              className="pl-9 pr-9"
-            />
-            {searching ? (
-              <button
-                type="button"
-                onClick={() => setSearchInput("")}
-                aria-label={t("cases.clearSearch")}
-                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-paper-shade hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <div aria-hidden className="mx-3 h-px bg-border/70" />
-
-        <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4">
-          <Select value={status || "all"} onValueChange={(v) => setStatus(v === "all" ? "" : v)}>
-            <SelectTrigger className="w-full" aria-label={t("ui.allStatuses")}>
-              <SelectValue placeholder={t("ui.allStatuses")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("ui.allStatuses")}</SelectItem>
-              {CASE_STATUSES.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {statusLabel(s, t)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={type || "all"} onValueChange={(v) => setType(v === "all" ? "" : v)}>
-            <SelectTrigger className="w-full" aria-label={t("ui.allTypes")}>
-              <SelectValue placeholder={t("ui.allTypes")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("ui.allTypes")}</SelectItem>
-              {CASE_TYPES.map((ct) => (
-                <SelectItem key={ct} value={ct}>
-                  {enumLabel("cases.type", ct, t)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={priority || "all"} onValueChange={(v) => setPriority(v === "all" ? "" : v)}>
-            <SelectTrigger className="w-full" aria-label={t("cases.anyPriority")}>
-              <SelectValue placeholder={t("cases.anyPriority")} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("cases.anyPriority")}</SelectItem>
-              {CASE_PRIORITIES.map((p) => (
-                <SelectItem key={p} value={p}>
-                  {statusLabel(p, t)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-            <SelectTrigger className="w-full" aria-label={t("cases.sortAria")}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SORTS.map((s) => (
-                <SelectItem key={s.key} value={s.key}>
-                  {t("cases.sortLabel")}: {t(s.labelKey)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {hasData || hasFilters ? (
-          <div className="flex items-center justify-between gap-2 border-t border-border/70 px-4 py-2">
-            <p className="text-xs text-muted-foreground" aria-live="polite">
+      <Toolbar
+        note={
+          hasData || hasFilters ? (
+            <>
               {t(rows.length === 1 ? "cases.caseCountOne" : "cases.caseCountOther", { count: rows.length })}
               {" · "}
               {viewDescription}
-            </p>
-            {hasFilters ? (
-              <Button variant="ghost" size="sm" className="h-7 shrink-0 cursor-pointer" onClick={clearFilters}>
-                <X className="h-3.5 w-3.5" /> {t("cases.clearFilters")}
-              </Button>
-            ) : null}
+            </>
+          ) : undefined
+        }
+        action={
+          hasFilters ? (
+            <Button variant="ghost" size="sm" className="h-7 cursor-pointer" onClick={clearFilters}>
+              <X className="h-3.5 w-3.5" /> {t("cases.clearFilters")}
+            </Button>
+          ) : undefined
+        }
+        filters={
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Select value={status || "all"} onValueChange={(v) => setStatus(v === "all" ? "" : v)}>
+              <SelectTrigger className="w-full" aria-label={t("ui.allStatuses")}>
+                <SelectValue placeholder={t("ui.allStatuses")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("ui.allStatuses")}</SelectItem>
+                {CASE_STATUSES.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {statusLabel(s, t)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={type || "all"} onValueChange={(v) => setType(v === "all" ? "" : v)}>
+              <SelectTrigger className="w-full" aria-label={t("ui.allTypes")}>
+                <SelectValue placeholder={t("ui.allTypes")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("ui.allTypes")}</SelectItem>
+                {CASE_TYPES.map((ct) => (
+                  <SelectItem key={ct} value={ct}>
+                    {enumLabel("cases.type", ct, t)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={priority || "all"} onValueChange={(v) => setPriority(v === "all" ? "" : v)}>
+              <SelectTrigger className="w-full" aria-label={t("cases.anyPriority")}>
+                <SelectValue placeholder={t("cases.anyPriority")} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("cases.anyPriority")}</SelectItem>
+                {CASE_PRIORITIES.map((pr) => (
+                  <SelectItem key={pr} value={pr}>
+                    {statusLabel(pr, t)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
+              <SelectTrigger className="w-full" aria-label={t("cases.sortAria")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {SORTS.map((s) => (
+                  <SelectItem key={s.key} value={s.key}>
+                    {t("cases.sortLabel")}: {t(s.labelKey)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        ) : null}
-      </div>
+        }
+      >
+        <div
+          role="group"
+          aria-label={t("cases.filterLabel")}
+          className="-mx-1 flex overflow-x-auto px-1 pb-0.5"
+        >
+          <div className="inline-flex gap-1 rounded-lg bg-paper-shade p-1 ring-1 ring-border/70">
+            {VIEW_TABS.map((tab) => {
+              const active = view === tab.key
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setView(tab.key)}
+                  aria-pressed={active}
+                  className={cn(
+                    "flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all duration-200",
+                    "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                    active
+                      ? "bg-primary text-primary-foreground shadow-soft"
+                      : "text-muted-foreground hover:bg-card hover:text-foreground"
+                  )}
+                >
+                  {t(tab.labelKey)}
+                  {active && data ? (
+                    <span className="text-xs tabular-nums opacity-75">{rows.length}</span>
+                  ) : null}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <SearchField
+          value={searchInput}
+          onChange={setSearchInput}
+          placeholder={t("cases.searchPh")}
+          ariaLabel={t("cases.searchAria")}
+        />
+      </Toolbar>
+
 
       {/* ------------------------------ Vitals ------------------------------ */}
       {hasData ? (
