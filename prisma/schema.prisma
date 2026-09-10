@@ -176,7 +176,15 @@ model CaseDocument {
   documentType     String?
   category         String? // Legal Documents | Client Documents | Court Orders | Evidence
   fileName         String?
+  /// Storage key. For CLOUDINARY rows this is the Cloudinary public_id; for
+  /// legacy local rows it stays a path relative to the uploads root.
   filePath         String?
+  /// "CLOUDINARY", or null for documents written before the migration, which
+  /// are still served from local disk. Both paths stay supported.
+  storageProvider  String?
+  /// Cloudinary resource_type ("image" | "raw"). Required to sign a delivery
+  /// URL and to destroy the asset; null for local rows.
+  storageResourceType String?
   fileSize         Int?
   mimeType         String?
   sharedWithClient Boolean  @default(false)

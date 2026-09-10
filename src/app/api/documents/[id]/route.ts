@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { ApiError, handle, readJson, requireAuth } from "@/lib/api-helpers"
 import { assertCaseWriteAccess, isStaffOrAdmin } from "@/lib/permissions"
 import { resolveUploadPath } from "@/lib/uploads"
+import { CLOUDINARY_PROVIDER, deleteDocument } from "@/lib/cloudinary"
 import { audit } from "@/lib/audit"
 
 function documentDTO(d: {
@@ -84,14 +85,26 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     }
 
     // Delete the DB row first so a failed delete never leaves a dangling row
-    // pointing at an already-removed file; unlink is best-effort afterwards.
+    // pointing at an already-removed file; storage removal is best-effort
+    // afterwards, on whichever backend holds this document.
     await db.caseDocument.delete({ where: { id } })
-    const absPath = resolveUploadPath(doc.filePath)
-    if (absPath) {
-      try {
-        unlinkSync(absPath)
-      } catch {
-        // best-effort file removal
+    if (doc.storageProvider === CLOUDINARY_PROVIDER) {
+      if (doc.filePath) {
+        try {
+          await deleteDocument(doc.filePath, doc.storageResourceType)
+        } catch (e) {
+          // Orphaned object; the row is already gone, so never fail the request.
+          console.error("[documents] cloudinary destroy failed", doc.filePath, e)
+        }
+      }
+    } else {
+      const absPath = resolveUploadPath(doc.filePath)
+      if (absPath) {
+        try {
+          unlinkSync(absPath)
+        } catch {
+          // best-effort file removal
+        }
       }
     }
     await audit(user, "DOCUMENT_DELETE", "Document", id, doc.documentName,

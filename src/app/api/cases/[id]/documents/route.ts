@@ -5,6 +5,7 @@ import { ApiError, handle, optionalString, requireAuth } from "@/lib/api-helpers
 import { assertCaseWriteAccess } from "@/lib/permissions"
 import { ALLOWED_MIME_PREFIXES, MAX_FILE_SIZE } from "@/lib/constants"
 import { caseUploadDir, storedUploadPath } from "@/lib/uploads"
+import { CLOUDINARY_ENABLED, CLOUDINARY_PROVIDER, uploadDocument } from "@/lib/cloudinary"
 import { clientUserId, notifyUsers } from "@/lib/notify"
 import { audit } from "@/lib/audit"
 
@@ -70,13 +71,40 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const safeName = sanitizeFileName(originalName)
     const savedFileName = `${Date.now()}-${safeName}`
 
-    const caseDir = caseUploadDir(id)
-    mkdirSync(caseDir, { recursive: true })
     const buffer = Buffer.from(await file.arrayBuffer())
-    writeFileSync(path.join(caseDir, savedFileName), buffer)
-    // Persist relative to the uploads root — an absolute path would break the
-    // moment the app runs from a different directory or host.
-    const filePath = storedUploadPath(id, savedFileName)
+
+    // Cloudinary is the storage of record when configured. Without credentials
+    // the original local-disk path still works, so a developer or a chamber
+    // self-hosting without an account is unaffected.
+    let filePath: string
+    let storageProvider: string | null = null
+    let storageResourceType: string | null = null
+    let storedBytes = file.size
+
+    if (CLOUDINARY_ENABLED) {
+      try {
+        const asset = await uploadDocument(buffer, {
+          caseId: id,
+          fileName: savedFileName,
+          mimeType: mimeType || null,
+        })
+        filePath = asset.publicId
+        storageProvider = CLOUDINARY_PROVIDER
+        storageResourceType = asset.resourceType
+        storedBytes = asset.bytes
+      } catch (e) {
+        // Never persist a row pointing at an object that was not stored.
+        console.error("[upload] cloudinary upload failed", e)
+        throw new ApiError("Could not store the file. Please try again.", 502)
+      }
+    } else {
+      const caseDir = caseUploadDir(id)
+      mkdirSync(caseDir, { recursive: true })
+      writeFileSync(path.join(caseDir, savedFileName), buffer)
+      // Persist relative to the uploads root — an absolute path would break the
+      // moment the app runs from a different directory or host.
+      filePath = storedUploadPath(id, savedFileName)
+    }
 
     const documentName = optionalString(form.get("documentName")) ?? originalName
     const documentType = optionalString(form.get("documentType"))
@@ -91,7 +119,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         category,
         fileName: safeName,
         filePath,
-        fileSize: file.size,
+        storageProvider,
+        storageResourceType,
+        fileSize: storedBytes,
         mimeType: mimeType || null,
         sharedWithClient,
         uploadedById: user.id,

@@ -3,6 +3,7 @@ import { db } from "@/lib/db"
 import { ApiError, handle, requireAuth } from "@/lib/api-helpers"
 import { assertCaseReadAccess, isStaffOrAdmin } from "@/lib/permissions"
 import { resolveUploadPath } from "@/lib/uploads"
+import { CLOUDINARY_PROVIDER, signedDownloadUrl } from "@/lib/cloudinary"
 
 export async function GET(request: Request, { params }: { params: Promise<{ documentId: string }> }) {
   return handle(async () => {
@@ -23,16 +24,35 @@ export async function GET(request: Request, { params }: { params: Promise<{ docu
       }
     }
 
-    // resolveUploadPath enforces containment: never serve anything outside
-    // the uploads directory.
-    const absPath = resolveUploadPath(doc.filePath)
-    if (!absPath) throw new ApiError("File not found on disk.", 404)
-
+    // Every access check above has passed by this point. Only now is the
+    // storage backend touched — and the Cloudinary asset is `authenticated`,
+    // so the signed URL below is used server-side and never reaches the
+    // browser. Clients cannot bypass this route to reach the object.
     let buf: Buffer
-    try {
-      buf = await readFile(absPath)
-    } catch {
-      throw new ApiError("File not found on disk.", 404)
+    if (doc.storageProvider === CLOUDINARY_PROVIDER) {
+      if (!doc.filePath) throw new ApiError("File not found.", 404)
+      let upstream: Response
+      try {
+        upstream = await fetch(signedDownloadUrl(doc.filePath, doc.storageResourceType))
+      } catch (e) {
+        console.error("[files] cloudinary fetch failed", e)
+        throw new ApiError("The document store is unreachable. Please try again.", 502)
+      }
+      if (!upstream.ok) {
+        console.error("[files] cloudinary responded", upstream.status, doc.filePath)
+        throw new ApiError("File not found.", 404)
+      }
+      buf = Buffer.from(await upstream.arrayBuffer())
+    } else {
+      // Legacy local rows: resolveUploadPath enforces containment, so nothing
+      // outside the uploads directory is ever served.
+      const absPath = resolveUploadPath(doc.filePath)
+      if (!absPath) throw new ApiError("File not found on disk.", 404)
+      try {
+        buf = await readFile(absPath)
+      } catch {
+        throw new ApiError("File not found on disk.", 404)
+      }
     }
 
     const download = new URL(request.url).searchParams.get("download") === "1"
