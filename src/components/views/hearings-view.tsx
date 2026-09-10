@@ -20,6 +20,7 @@ import type { LucideIcon } from "lucide-react"
 import { EmptyState } from "@/components/shared/empty-state"
 import { LoadingBlock } from "@/components/shared/loading-block"
 import { PageHeader } from "@/components/shared/page-header"
+import { DialogHead, FieldGroup, RequiredMark } from "@/components/shared/dialog-chrome"
 import { StatCard } from "@/components/shared/stat-card"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { useApiData } from "@/hooks/use-api-data"
@@ -437,52 +438,6 @@ function DayPanel({
       </ol>
     </section>
   )
-}
-
-/* ------------------------------ Dialog chrome ------------------------------ */
-
-/** Icon-plate dialog header, matching the SectionCard header on the dashboard. */
-function DialogHead({
-  icon: Icon,
-  title,
-  description,
-}: {
-  icon: LucideIcon
-  title: string
-  description: string
-}) {
-  return (
-    <DialogHeader>
-      <div className="flex items-start gap-3 text-left">
-        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/15">
-          <Icon className="h-[1.15rem] w-[1.15rem]" />
-        </span>
-        <div className="min-w-0 flex-1 space-y-1">
-          <DialogTitle className="font-serif text-xl leading-tight font-semibold tracking-tight text-ink">
-            {title}
-          </DialogTitle>
-          <DialogDescription className="text-xs">{description}</DialogDescription>
-        </div>
-      </div>
-    </DialogHeader>
-  )
-}
-
-/** Micro-caps section label over a fading brass rule — groups the long forms. */
-function FieldGroup({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <section className="space-y-3">
-      <div className="flex items-center gap-2.5">
-        <h3 className="u-eyebrow shrink-0 text-brass-deep">{label}</h3>
-        <span aria-hidden className="u-rule flex-1" />
-      </div>
-      {children}
-    </section>
-  )
-}
-
-function RequiredMark() {
-  return <span className="text-rose-500">*</span>
 }
 
 /* ---------------------------- Schedule hearing dialog ---------------------------- */

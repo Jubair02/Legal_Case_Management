@@ -1270,7 +1270,7 @@ export default function CaseDetailView({ user, navigate, params }: ViewProps) {
         <div
           className={cn(
             "sticky top-0 z-20 -mx-4 mt-3 border-b px-4 backdrop-blur-xl transition-shadow duration-200 md:-mx-6 md:px-6",
-            "bg-stone-50/85 supports-[backdrop-filter]:bg-stone-50/70 dark:bg-stone-950/85",
+            "bg-paper/85 supports-[backdrop-filter]:bg-paper/70",
             "motion-reduce:transition-none",
             stuck ? "border-border shadow-[0_10px_30px_-22px_rgba(12,30,22,0.65)]" : "border-border/60"
           )}
@@ -1324,7 +1324,7 @@ export default function CaseDetailView({ user, navigate, params }: ViewProps) {
               </TabsList>
               <div
                 aria-hidden
-                className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-stone-50 to-transparent md:hidden"
+                className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-paper to-transparent md:hidden"
               />
             </div>
 

@@ -56,6 +56,7 @@ export const enCore: Record<string, string> = {
   "common.of": "of",
   "common.showMore": "Show more",
   "common.viewAll": "View all",
+  "common.clearSearch": "Clear search",
 
   /* ------------------------------ status.* ------------------------------ */
   // Cases
@@ -138,6 +139,7 @@ export const enCore: Record<string, string> = {
   "shell.accountMenu": "Account menu",
   "shell.footerTagline": "Legal Case Management for Bangladesh",
   "shell.footerBuiltFor": "Built for chambers, advocates & clients",
+  "shell.skipToContent": "Skip to content",
 
   /* ------------------------------- login.* ------------------------------- */
   "login.title": "Sign in to your chamber",
@@ -240,6 +242,14 @@ export const enCore: Record<string, string> = {
   "notifications.noUnread": "No unread notifications right now.",
   "notifications.emptyDescription": "New hearing reminders and case alerts will appear here.",
   "notifications.empty": "No notifications",
+  /* redesigned feed: toolbar, day groups, per-row mark-read */
+  "notifications.filterAria": "Notification filter",
+  "notifications.typeAll": "All types",
+  "notifications.clearFilters": "Clear",
+  "notifications.markRead": "Mark as read",
+  "notifications.markReadFailed": "Could not mark it as read.",
+  "notifications.countOne": "{count} notification",
+  "notifications.countOther": "{count} notifications",
 
   /* ----------------------------- settings.* ----------------------------- */
   "settings.title": "Settings",
@@ -309,6 +319,20 @@ export const enCore: Record<string, string> = {
   "settings.fillBoth": "Please fill in both password fields.",
   "settings.mismatch": "New password and confirmation do not match.",
   "settings.passwordChanged": "Password changed successfully.",
+  /* redesigned settings: tab rail, directory vitals, grouped form */
+  "settings.tabsAria": "Settings sections",
+  "settings.allStatuses": "All statuses",
+  "settings.clearFilters": "Clear",
+  "settings.clearSearch": "Clear search",
+  "settings.statTotal": "Total Accounts",
+  "settings.statAdmins": "Admins",
+  "settings.gotoInactive": "Show inactive accounts only",
+  "settings.userCountOne": "{count} account",
+  "settings.userCountOther": "{count} accounts",
+  "settings.groupCredentials": "Credentials",
+  "settings.groupAccess": "Role & Access",
+  "settings.reqMatch": "Both new password fields match",
+  "settings.outbox.statsAria": "Filter by delivery status",
 
   /* --------------------------- confirmDialog.* --------------------------- */
   "confirmDialog.title": "Confirm action",
@@ -369,6 +393,7 @@ export const bnCore: Record<string, string> = {
   "common.of": "এর",
   "common.showMore": "আরও দেখুন",
   "common.viewAll": "সব দেখুন",
+  "common.clearSearch": "খোঁজা মুছুন",
 
   /* ------------------------------ status.* ------------------------------ */
   // Cases
@@ -451,6 +476,7 @@ export const bnCore: Record<string, string> = {
   "shell.accountMenu": "অ্যাকাউন্ট মেনু",
   "shell.footerTagline": "বাংলাদেশের জন্য আইন সেবা ব্যবস্থাপনা",
   "shell.footerBuiltFor": "চেম্বার, আইনজীবী ও মক্কেলদের জন্য নির্মিত",
+  "shell.skipToContent": "মূল কন্টেন্টে যান",
 
   /* ------------------------------- login.* ------------------------------- */
   "login.title": "আপনার চেম্বারে সাইন ইন করুন",
@@ -553,6 +579,14 @@ export const bnCore: Record<string, string> = {
   "notifications.noUnread": "এই মুহূর্তে কোনো অপঠিত নোটিফিকেশন নেই।",
   "notifications.emptyDescription": "নতুন শুনানির রিমাইন্ডার ও মামলার সতর্কতা এখানে দেখা যাবে।",
   "notifications.empty": "কোনো নোটিফিকেশন নেই",
+  /* redesigned feed: toolbar, day groups, per-row mark-read */
+  "notifications.filterAria": "নোটিফিকেশন ফিল্টার",
+  "notifications.typeAll": "সব ধরন",
+  "notifications.clearFilters": "রিসেট",
+  "notifications.markRead": "পঠিত হিসেবে চিহ্নিত করুন",
+  "notifications.markReadFailed": "পঠিত হিসেবে চিহ্নিত করা যায়নি।",
+  "notifications.countOne": "{count}টি নোটিফিকেশন",
+  "notifications.countOther": "{count}টি নোটিফিকেশন",
 
   /* ----------------------------- settings.* ----------------------------- */
   "settings.title": "সেটিংস",
@@ -622,6 +656,20 @@ export const bnCore: Record<string, string> = {
   "settings.fillBoth": "দুটি পাসওয়ার্ড ঘরই পূরণ করুন।",
   "settings.mismatch": "নতুন পাসওয়ার্ড ও নিশ্চিতকরণ মিলছে না।",
   "settings.passwordChanged": "পাসওয়ার্ড সফলভাবে পরিবর্তন হয়েছে।",
+  /* redesigned settings: tab rail, directory vitals, grouped form */
+  "settings.tabsAria": "সেটিংস বিভাগসমূহ",
+  "settings.allStatuses": "সব অবস্থা",
+  "settings.clearFilters": "রিসেট",
+  "settings.clearSearch": "সার্চ মুছুন",
+  "settings.statTotal": "মোট অ্যাকাউন্ট",
+  "settings.statAdmins": "অ্যাডমিন",
+  "settings.gotoInactive": "শুধু নিষ্ক্রিয় অ্যাকাউন্ট দেখুন",
+  "settings.userCountOne": "{count}টি অ্যাকাউন্ট",
+  "settings.userCountOther": "{count}টি অ্যাকাউন্ট",
+  "settings.groupCredentials": "লগইন তথ্য",
+  "settings.groupAccess": "ভূমিকা ও অ্যাক্সেস",
+  "settings.reqMatch": "নতুন পাসওয়ার্ড দুটি মিলেছে",
+  "settings.outbox.statsAria": "ডেলিভারি অবস্থা অনুযায়ী ফিল্টার",
 
   /* --------------------------- confirmDialog.* --------------------------- */
   "confirmDialog.title": "কাজটি নিশ্চিত করুন",

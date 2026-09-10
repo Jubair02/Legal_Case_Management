@@ -235,6 +235,17 @@ html[lang="bn"] body {
     text-transform: uppercase;
   }
 
+  /* Diagonal hatch for the "overdue" segment of a stacked meter. Green and
+     red segments can read alike under deuteranopia, so the worst segment is
+     also marked by texture rather than hue alone. */
+  .u-hatch {
+    background-image: repeating-linear-gradient(
+      45deg,
+      oklch(1 0 0 / 0.38) 0 2px,
+      transparent 2px 5px
+    );
+  }
+
   /* Hairline highlight along the top edge of an elevated light surface.
      Feeds Tailwind's inset-shadow slot rather than setting box-shadow, so it
      composes with shadow-soft/shadow-lift instead of overriding them. */

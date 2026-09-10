@@ -1,12 +1,26 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
-import { AlertTriangle, FolderKanban, Loader2, Plus, Search, X } from "lucide-react"
+import {
+  AlertTriangle,
+  CalendarClock,
+  CalendarDays,
+  ChevronRight,
+  FilePen,
+  FilePlus2,
+  FolderKanban,
+  Loader2,
+  Plus,
+  Search,
+  X,
+} from "lucide-react"
 import { toast } from "sonner"
 
+import { DialogHead, FieldGroup, RequiredMark } from "@/components/shared/dialog-chrome"
 import { EmptyState } from "@/components/shared/empty-state"
 import { LoadingBlock } from "@/components/shared/loading-block"
 import { PageHeader } from "@/components/shared/page-header"
+import { StatCard } from "@/components/shared/stat-card"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { useApiData } from "@/hooks/use-api-data"
 import { apiGet, apiSend } from "@/lib/api-client"
@@ -18,6 +32,7 @@ import {
   DISTRICTS,
 } from "@/lib/constants"
 import { statusLabel, useLanguage, type TranslateFn } from "@/lib/i18n/language"
+import { hrefFor } from "@/lib/routes"
 import { useResetOnOpen } from "@/lib/use-reset-on-open"
 import {
   caseStatusStyles,
@@ -35,17 +50,8 @@ import type {
   ViewProps,
 } from "@/lib/types"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -67,8 +73,28 @@ const VIEW_TABS = [
 
 type ViewTab = (typeof VIEW_TABS)[number]["key"]
 
+const SORTS = [
+  { key: "recent", labelKey: "cases.sortRecent" },
+  { key: "hearing", labelKey: "cases.sortHearing" },
+  { key: "priority", labelKey: "cases.sortPriority" },
+  { key: "number", labelKey: "cases.sortNumber" },
+] as const
+
+type SortKey = (typeof SORTS)[number]["key"]
+
 /** Sentinel for optional Radix Select values (empty string is not allowed). */
 const NONE = "__none__"
+
+/** Priority as a silent visual rank: an edge bar on the row, a dot in the cell. */
+const PRIORITY_ACCENT: Record<string, { bar: string; dot: string }> = {
+  URGENT: { bar: "bg-rose-500", dot: "bg-rose-500" },
+  HIGH: { bar: "bg-orange-400", dot: "bg-orange-400" },
+  MEDIUM: { bar: "bg-amber-300", dot: "bg-amber-400" },
+  LOW: { bar: "bg-border", dot: "bg-stone-300" },
+}
+const FALLBACK_ACCENT = { bar: "bg-border", dot: "bg-stone-300" }
+
+const PRIORITY_RANK: Record<string, number> = { URGENT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 }
 
 /**
  * Builds a derived enum dictionary key: enumTKey("cases.type", "Civil Case")
@@ -109,6 +135,67 @@ function translatedStyles(
   return Object.fromEntries(
     Object.entries(map).map(([value, style]) => [value, { ...style, label: statusLabel(value, t) }])
   )
+}
+
+/* ------------------------------- date helpers ------------------------------- */
+
+const DHAKA = "Asia/Dhaka"
+
+/** Epoch ms, or NaN when missing/unparseable. */
+function ts(d: string | null | undefined): number {
+  return d ? Date.parse(d) : Number.NaN
+}
+
+/** First parseable date in the list, as epoch ms; 0 when none parse. */
+function firstDate(...values: (string | null | undefined)[]): number {
+  for (const v of values) {
+    const n = ts(v)
+    if (!Number.isNaN(n)) return n
+  }
+  return 0
+}
+
+function dhakaDayKey(d: Date | string | null | undefined): string {
+  if (!d) return ""
+  const date = typeof d === "string" ? new Date(d) : d
+  if (Number.isNaN(date.getTime())) return ""
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: DHAKA,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date)
+}
+
+/**
+ * Whole days from today to `d`, in Dhaka. Compared on day keys rather than
+ * timestamps so a date-only hearing booked for today reads as 0, not as past.
+ */
+function daysUntil(d: string | null | undefined): number | null {
+  const key = dhakaDayKey(d)
+  if (!key) return null
+  const diff = (Date.parse(key) - Date.parse(dhakaDayKey(new Date()))) / 86_400_000
+  return Number.isNaN(diff) ? null : diff
+}
+
+/** "Mon" weekday in Dhaka — the secondary line when the date needs no relative word. */
+function weekday(d: string | null | undefined): string {
+  if (!d) return ""
+  const date = new Date(d)
+  if (Number.isNaN(date.getTime())) return ""
+  return new Intl.DateTimeFormat("en-GB", { timeZone: DHAKA, weekday: "long" }).format(date)
+}
+
+/**
+ * Splits a hearing date into a headline and a supporting line without ever
+ * printing the same string twice: formatRelativeDay falls back to the full
+ * date for anything past tomorrow, so the weekday carries the second line.
+ */
+function hearingLines(d: string, t: TranslateFn): { lead: string; sub: string } {
+  const rel = formatRelativeDay(d)
+  const full = formatDate(d)
+  if (rel === full) return { lead: full, sub: weekday(d) }
+  return { lead: relDay(rel, t), sub: full }
 }
 
 /* ------------------------------------------------------------------ */
@@ -294,230 +381,241 @@ export function CaseFormDialog({ open, onOpenChange, onSaved, editing, actorRole
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{isEditing ? t("cases.editCase") : t("cases.registerNewCase")}</DialogTitle>
-          <DialogDescription>
-            {isEditing ? t("cases.editCaseDesc") : t("cases.newCaseDesc")}
-          </DialogDescription>
-        </DialogHeader>
+        <DialogHead
+          icon={isEditing ? FilePen : FilePlus2}
+          title={isEditing ? t("cases.editCase") : t("cases.registerNewCase")}
+          description={isEditing ? t("cases.editCaseDesc") : t("cases.newCaseDesc")}
+        />
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="case-number">{t("cases.caseNumber")}</Label>
-            <Input
-              id="case-number"
-              value={caseNumber}
-              onChange={(e) => setCaseNumber(e.target.value)}
-              placeholder={t("cases.caseNumberPh")}
-              disabled={isEditing}
-              className="font-mono"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="case-title">
-              {t("cases.caseTitle")} <span className="text-rose-600">*</span>
-            </Label>
-            <Input
-              id="case-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={t("cases.caseTitlePh")}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>
-              {t("cases.caseType")} <span className="text-rose-600">*</span>
-            </Label>
-            <Select value={type || undefined} onValueChange={setType}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t("ui.selectType")} />
-              </SelectTrigger>
-              <SelectContent>
-                {CASE_TYPES.map((ct) => (
-                  <SelectItem key={ct} value={ct}>
-                    {enumLabel("cases.type", ct, t)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>
-              {t("cases.client")} <span className="text-rose-600">*</span>
-            </Label>
-            <Select
-              value={clientId || undefined}
-              onValueChange={setClientId}
-              disabled={isLawyer}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={optionsLoading ? t("ui.loadingClients") : t("ui.selectClient")} />
-              </SelectTrigger>
-              <SelectContent>
-                {clients.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>{t("cases.assignedLawyer")}</Label>
-            <Select
-              value={lawyerId || NONE}
-              onValueChange={(v) => setLawyerId(v === NONE ? "" : v)}
-              disabled={isLawyer}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={optionsLoading ? t("ui.loadingLawyers") : t("cases.unassigned")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>{t("cases.unassigned")}</SelectItem>
-                {lawyers.map((l) => (
-                  <SelectItem key={l.id} value={l.id}>
-                    {l.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>
-              {t("cases.court")} <span className="text-rose-600">*</span>
-            </Label>
-            <Select value={court || undefined} onValueChange={setCourt}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t("cases.selectCourt")} />
-              </SelectTrigger>
-              <SelectContent>
-                {COURTS.map((ct) => (
-                  <SelectItem key={ct} value={ct}>
-                    {enumLabel("cases.court", ct, t)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>{t("cases.district")}</Label>
-            <Select value={district || NONE} onValueChange={(v) => setDistrict(v === NONE ? "" : v)}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder={t("cases.selectDistrict")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>{t("ui.notSpecified")}</SelectItem>
-                {DISTRICTS.map((d) => (
-                  <SelectItem key={d} value={d}>
-                    {enumLabel("cases.district", d, t)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="filing-date">{t("cases.filingDate")}</Label>
-            <Input
-              id="filing-date"
-              type="date"
-              value={filingDate}
-              onChange={(e) => setFilingDate(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>{t("common.status")}</Label>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {statusOptions.map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {statusLabel(s, t)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label>{t("cases.priority")}</Label>
-            <Select value={priority} onValueChange={setPriority}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CASE_PRIORITIES.map((p) => (
-                  <SelectItem key={p} value={p}>
-                    {statusLabel(p, t)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="opposite-party">{t("cases.oppositeParty")}</Label>
-            <Input
-              id="opposite-party"
-              value={oppositeParty}
-              onChange={(e) => setOppositeParty(e.target.value)}
-              placeholder={t("cases.oppositePartyPh")}
-            />
-          </div>
-
-          <div className="space-y-2 sm:col-span-2">
-            <Label htmlFor="case-description">{t("common.description")}</Label>
-            <Textarea
-              id="case-description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t("cases.descriptionPh")}
-              rows={3}
-            />
-          </div>
-
-          {closing ? (
-            <>
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="resolution-summary">
-                  {t("cases.resolutionSummary")} <span className="text-rose-600">*</span>
-                </Label>
-                <Textarea
-                  id="resolution-summary"
-                  value={resolutionSummary}
-                  onChange={(e) => setResolutionSummary(e.target.value)}
-                  placeholder={t("cases.resolutionPh")}
-                  rows={3}
-                  required
+        <div className="space-y-5">
+          <FieldGroup label={t("cases.groupIdentity")}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="case-number">{t("cases.caseNumber")}</Label>
+                <Input
+                  id="case-number"
+                  value={caseNumber}
+                  onChange={(e) => setCaseNumber(e.target.value)}
+                  placeholder={t("cases.caseNumberPh")}
+                  disabled={isEditing}
+                  className="font-mono"
                 />
-                <p className="text-xs text-muted-foreground">{t("cases.resolutionHint")}</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="case-outcome">{t("cases.outcome")}</Label>
+                <Label htmlFor="case-title">
+                  {t("cases.caseTitle")} <RequiredMark />
+                </Label>
                 <Input
-                  id="case-outcome"
-                  value={outcome}
-                  onChange={(e) => setOutcome(e.target.value)}
-                  placeholder={t("cases.outcomePh")}
+                  id="case-title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={t("cases.caseTitlePh")}
                 />
               </div>
-            </>
+              <div className="space-y-2 sm:col-span-2">
+                <Label>
+                  {t("cases.caseType")} <RequiredMark />
+                </Label>
+                <Select value={type || undefined} onValueChange={setType}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t("ui.selectType")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CASE_TYPES.map((ct) => (
+                      <SelectItem key={ct} value={ct}>
+                        {enumLabel("cases.type", ct, t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="case-description">{t("common.description")}</Label>
+                <Textarea
+                  id="case-description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder={t("cases.descriptionPh")}
+                  rows={3}
+                />
+              </div>
+            </div>
+          </FieldGroup>
+
+          <FieldGroup label={t("cases.groupParties")}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>
+                  {t("cases.client")} <RequiredMark />
+                </Label>
+                <Select value={clientId || undefined} onValueChange={setClientId} disabled={isLawyer}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={optionsLoading ? t("ui.loadingClients") : t("ui.selectClient")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {clients.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("cases.assignedLawyer")}</Label>
+                <Select
+                  value={lawyerId || NONE}
+                  onValueChange={(v) => setLawyerId(v === NONE ? "" : v)}
+                  disabled={isLawyer}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={optionsLoading ? t("ui.loadingLawyers") : t("cases.unassigned")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>{t("cases.unassigned")}</SelectItem>
+                    {lawyers.map((l) => (
+                      <SelectItem key={l.id} value={l.id}>
+                        {l.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="opposite-party">{t("cases.oppositeParty")}</Label>
+                <Input
+                  id="opposite-party"
+                  value={oppositeParty}
+                  onChange={(e) => setOppositeParty(e.target.value)}
+                  placeholder={t("cases.oppositePartyPh")}
+                />
+              </div>
+            </div>
+          </FieldGroup>
+
+          <FieldGroup label={t("cases.groupCourt")}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>
+                  {t("cases.court")} <RequiredMark />
+                </Label>
+                <Select value={court || undefined} onValueChange={setCourt}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t("cases.selectCourt")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COURTS.map((ct) => (
+                      <SelectItem key={ct} value={ct}>
+                        {enumLabel("cases.court", ct, t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("cases.district")}</Label>
+                <Select value={district || NONE} onValueChange={(v) => setDistrict(v === NONE ? "" : v)}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={t("cases.selectDistrict")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NONE}>{t("ui.notSpecified")}</SelectItem>
+                    {DISTRICTS.map((d) => (
+                      <SelectItem key={d} value={d}>
+                        {enumLabel("cases.district", d, t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="filing-date">{t("cases.filingDate")}</Label>
+                <Input
+                  id="filing-date"
+                  type="date"
+                  value={filingDate}
+                  onChange={(e) => setFilingDate(e.target.value)}
+                />
+              </div>
+            </div>
+          </FieldGroup>
+
+          <FieldGroup label={t("cases.groupTracking")}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label>{t("common.status")}</Label>
+                <Select value={status} onValueChange={setStatus}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statusOptions.map((s) => (
+                      <SelectItem key={s} value={s}>
+                        {statusLabel(s, t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>{t("cases.priority")}</Label>
+                <Select value={priority} onValueChange={setPriority}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CASE_PRIORITIES.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {statusLabel(p, t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </FieldGroup>
+
+          {closing ? (
+            <FieldGroup label={t("cases.groupResolution")}>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="resolution-summary">
+                    {t("cases.resolutionSummary")} <RequiredMark />
+                  </Label>
+                  <Textarea
+                    id="resolution-summary"
+                    value={resolutionSummary}
+                    onChange={(e) => setResolutionSummary(e.target.value)}
+                    placeholder={t("cases.resolutionPh")}
+                    rows={3}
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">{t("cases.resolutionHint")}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="case-outcome">{t("cases.outcome")}</Label>
+                  <Input
+                    id="case-outcome"
+                    value={outcome}
+                    onChange={(e) => setOutcome(e.target.value)}
+                    placeholder={t("cases.outcomePh")}
+                  />
+                </div>
+              </div>
+            </FieldGroup>
           ) : null}
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+          <Button variant="outline" className="cursor-pointer" onClick={() => onOpenChange(false)} disabled={pending}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={() => void handleSubmit()} disabled={pending}>
+          <Button className="cursor-pointer" onClick={() => void handleSubmit()} disabled={pending}>
             {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {isEditing ? t("ui.saveChanges") : t("cases.registerCase")}
           </Button>
@@ -539,6 +637,7 @@ export default function CasesView({ user, navigate }: ViewProps) {
   const [priority, setPriority] = useState("")
   const [searchInput, setSearchInput] = useState("")
   const [search, setSearch] = useState("")
+  const [sort, setSort] = useState<SortKey>("recent")
   const [formOpen, setFormOpen] = useState(false)
 
   // 300ms debounce for the search box
@@ -560,8 +659,54 @@ export default function CasesView({ user, navigate }: ViewProps) {
   const { data, loading, error, refetch } = useApiData<CaseListDTO[]>(url)
   const rows = useMemo(() => (Array.isArray(data) ? data : []), [data])
 
+  /** Client-side ordering of the loaded page — the API returns an unsorted set. */
+  const ordered = useMemo(() => {
+    const list = [...rows]
+    switch (sort) {
+      case "hearing":
+        return list.sort((a, b) => {
+          const av = ts(a.nextHearingDate)
+          const bv = ts(b.nextHearingDate)
+          const an = Number.isNaN(av)
+          const bn = Number.isNaN(bv)
+          if (an && bn) return 0
+          if (an) return 1 // cases with no hearing sink to the bottom
+          if (bn) return -1
+          return av - bv
+        })
+      case "priority":
+        return list.sort(
+          (a, b) =>
+            (PRIORITY_RANK[a.priority] ?? 9) - (PRIORITY_RANK[b.priority] ?? 9) ||
+            firstDate(b.filingDate, b.createdAt) - firstDate(a.filingDate, a.createdAt)
+        )
+      case "number":
+        return list.sort((a, b) => a.caseNumber.localeCompare(b.caseNumber, undefined, { numeric: true }))
+      default:
+        return list.sort(
+          (a, b) => firstDate(b.filingDate, b.createdAt) - firstDate(a.filingDate, a.createdAt)
+        )
+    }
+  }, [rows, sort])
+
+  /** Counts describe the loaded page for the active filter, not the whole table. */
+  const metrics = useMemo(() => {
+    let urgent = 0
+    let thisWeek = 0
+    let soonest: { row: CaseListDTO; days: number } | null = null
+    for (const c of rows) {
+      if (c.priority === "URGENT") urgent += 1
+      const days = daysUntil(c.nextHearingDate)
+      if (days === null || days < 0) continue
+      if (days <= 7) thisWeek += 1
+      if (!soonest || days < soonest.days) soonest = { row: c, days }
+    }
+    return { total: rows.length, urgent, thisWeek, soonest }
+  }, [rows])
+
   const canCreate = user.role === "ADMIN" || user.role === "STAFF"
   const hasFilters = Boolean(status || type || priority || searchInput)
+  const searching = searchInput.trim().length > 0
 
   const clearFilters = () => {
     setStatus("")
@@ -571,197 +716,456 @@ export default function CasesView({ user, navigate }: ViewProps) {
   }
 
   const loadingFirst = loading && !data && !error
+  const hasData = !loadingFirst && !(error && !data) && rows.length > 0
+
+  /**
+   * Rows are real links now that every case owns a URL, so middle-click,
+   * "open in new tab" and "copy link" all behave. A plain left click is
+   * intercepted and handed to the router for a client-side transition.
+   */
+  const caseLink = (id: string) => ({
+    href: hrefFor("case-detail", { id }),
+    onClick: (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return // let the browser take it
+      e.preventDefault()
+      navigate("case-detail", { id })
+    },
+  })
+
+  const viewDescription =
+    view === "all"
+      ? t("cases.filterAllDesc")
+      : view === "active"
+        ? t("cases.filterActiveDesc")
+        : t("cases.filterClosedDesc")
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title={t("cases.pageTitle")}
-        description={t("cases.pageSubtitle")}
-      >
-        <div className="flex items-center rounded-lg border border-stone-200/80 bg-white p-0.5">
-          {VIEW_TABS.map((tab) => (
-            <Button
-              key={tab.key}
-              size="sm"
-              variant={view === tab.key ? "default" : "outline"}
-              className={cn("h-7 border-0 px-3", view !== tab.key && "bg-transparent shadow-none")}
-              onClick={() => setView(tab.key)}
-            >
-              {t(tab.labelKey)}
-            </Button>
-          ))}
-        </div>
+      <PageHeader title={t("cases.pageTitle")} description={t("cases.pageSubtitle")}>
         {canCreate ? (
-          <Button onClick={() => setFormOpen(true)}>
+          <Button className="cursor-pointer" onClick={() => setFormOpen(true)}>
             <Plus className="h-4 w-4" /> {t("cases.newCase")}
           </Button>
         ) : null}
       </PageHeader>
 
-      {/* Filter row */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[15rem] flex-1 sm:max-w-xs">
-          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder={t("cases.searchPh")}
-            aria-label={t("cases.searchAria")}
-            className="pl-8"
-          />
+      {/* ------------------------------ Toolbar ------------------------------ */}
+      <div className="u-rise overflow-hidden rounded-xl border border-border/80 bg-card shadow-soft">
+        <div className="flex flex-col gap-3 p-3 lg:flex-row lg:items-center lg:justify-between">
+          <div
+            role="group"
+            aria-label={t("cases.filterLabel")}
+            className="-mx-1 flex overflow-x-auto px-1 pb-0.5"
+          >
+            <div className="inline-flex gap-1 rounded-lg bg-paper-shade p-1 ring-1 ring-border/70">
+              {VIEW_TABS.map((tab) => {
+                const active = view === tab.key
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setView(tab.key)}
+                    aria-pressed={active}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all duration-200",
+                      "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+                      active
+                        ? "bg-primary text-primary-foreground shadow-soft"
+                        : "text-muted-foreground hover:bg-card hover:text-foreground"
+                    )}
+                  >
+                    {t(tab.labelKey)}
+                    {active && data ? (
+                      <span className="text-xs tabular-nums opacity-75">{rows.length}</span>
+                    ) : null}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="relative lg:w-80">
+            <Search aria-hidden className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              aria-label={t("cases.searchAria")}
+              placeholder={t("cases.searchPh")}
+              className="pl-9 pr-9"
+            />
+            {searching ? (
+              <button
+                type="button"
+                onClick={() => setSearchInput("")}
+                aria-label={t("cases.clearSearch")}
+                className="absolute right-1.5 top-1/2 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-paper-shade hover:text-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
         </div>
-        <Select value={status || "all"} onValueChange={(v) => setStatus(v === "all" ? "" : v)}>
-          <SelectTrigger className="w-[10.5rem]">
-            <SelectValue placeholder={t("ui.allStatuses")} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t("ui.allStatuses")}</SelectItem>
-            {CASE_STATUSES.map((s) => (
-              <SelectItem key={s} value={s}>
-                {statusLabel(s, t)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={type || "all"} onValueChange={(v) => setType(v === "all" ? "" : v)}>
-          <SelectTrigger className="w-[11.5rem]">
-            <SelectValue placeholder={t("ui.allTypes")} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t("ui.allTypes")}</SelectItem>
-            {CASE_TYPES.map((ct) => (
-              <SelectItem key={ct} value={ct}>
-                {enumLabel("cases.type", ct, t)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={priority || "all"} onValueChange={(v) => setPriority(v === "all" ? "" : v)}>
-          <SelectTrigger className="w-[9.5rem]">
-            <SelectValue placeholder={t("cases.anyPriority")} />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">{t("cases.anyPriority")}</SelectItem>
-            {CASE_PRIORITIES.map((p) => (
-              <SelectItem key={p} value={p}>
-                {statusLabel(p, t)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {hasFilters ? (
-          <Button variant="ghost" size="sm" onClick={clearFilters}>
-            <X className="h-4 w-4" /> {t("cases.clearFilters")}
-          </Button>
+
+        <div aria-hidden className="mx-3 h-px bg-border/70" />
+
+        <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-4">
+          <Select value={status || "all"} onValueChange={(v) => setStatus(v === "all" ? "" : v)}>
+            <SelectTrigger className="w-full" aria-label={t("ui.allStatuses")}>
+              <SelectValue placeholder={t("ui.allStatuses")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("ui.allStatuses")}</SelectItem>
+              {CASE_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {statusLabel(s, t)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={type || "all"} onValueChange={(v) => setType(v === "all" ? "" : v)}>
+            <SelectTrigger className="w-full" aria-label={t("ui.allTypes")}>
+              <SelectValue placeholder={t("ui.allTypes")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("ui.allTypes")}</SelectItem>
+              {CASE_TYPES.map((ct) => (
+                <SelectItem key={ct} value={ct}>
+                  {enumLabel("cases.type", ct, t)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={priority || "all"} onValueChange={(v) => setPriority(v === "all" ? "" : v)}>
+            <SelectTrigger className="w-full" aria-label={t("cases.anyPriority")}>
+              <SelectValue placeholder={t("cases.anyPriority")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("cases.anyPriority")}</SelectItem>
+              {CASE_PRIORITIES.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {statusLabel(p, t)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
+            <SelectTrigger className="w-full" aria-label={t("cases.sortAria")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORTS.map((s) => (
+                <SelectItem key={s.key} value={s.key}>
+                  {t("cases.sortLabel")}: {t(s.labelKey)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {hasData || hasFilters ? (
+          <div className="flex items-center justify-between gap-2 border-t border-border/70 px-4 py-2">
+            <p className="text-xs text-muted-foreground" aria-live="polite">
+              {t(rows.length === 1 ? "cases.caseCountOne" : "cases.caseCountOther", { count: rows.length })}
+              {" · "}
+              {viewDescription}
+            </p>
+            {hasFilters ? (
+              <Button variant="ghost" size="sm" className="h-7 shrink-0 cursor-pointer" onClick={clearFilters}>
+                <X className="h-3.5 w-3.5" /> {t("cases.clearFilters")}
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
+      {/* ------------------------------ Vitals ------------------------------ */}
+      {hasData ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            icon={FolderKanban}
+            label={t("cases.caseFiles")}
+            value={metrics.total}
+            tone="emerald"
+            delay={0}
+          />
+          <StatCard
+            icon={CalendarClock}
+            label={t("cases.colNextHearing")}
+            value={
+              metrics.soonest
+                ? hearingLines(metrics.soonest.row.nextHearingDate as string, t).lead
+                : t("common.none")
+            }
+            sub={metrics.soonest?.row.caseNumber ?? undefined}
+            tone="gold"
+            delay={60}
+          />
+          <StatCard
+            icon={CalendarDays}
+            label={t("cases.statThisWeek")}
+            value={metrics.thisWeek}
+            tone="teal"
+            delay={120}
+          />
+          <StatCard
+            icon={AlertTriangle}
+            label={statusLabel("URGENT", t)}
+            value={metrics.urgent}
+            tone="rose"
+            delay={180}
+            onClick={priority === "URGENT" || metrics.urgent === 0 ? undefined : () => setPriority("URGENT")}
+            actionLabel={t("cases.gotoUrgent")}
+          />
+        </div>
+      ) : null}
+
+      {/* ------------------------------- Docket ------------------------------- */}
       {loadingFirst ? (
-        <LoadingBlock rows={6} />
+        <LoadingBlock rows={5} tiles={4} panels={1} />
       ) : error && !data ? (
-        <EmptyState icon={AlertTriangle} title={t("cases.errLoad")} description={error} />
+        <EmptyState
+          icon={AlertTriangle}
+          title={t("cases.errLoad")}
+          description={error}
+          action={
+            <Button variant="outline" size="sm" className="cursor-pointer" onClick={refetch}>
+              {t("common.retry")}
+            </Button>
+          }
+        />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          icon={searching ? Search : FolderKanban}
+          title={t("cases.emptyTitle")}
+          description={hasFilters ? t("cases.emptyFilters") : t("cases.emptyFirst")}
+          action={
+            hasFilters ? (
+              <Button variant="outline" size="sm" className="cursor-pointer" onClick={clearFilters}>
+                {t("cases.clearFilters")}
+              </Button>
+            ) : canCreate ? (
+              <Button size="sm" className="cursor-pointer" onClick={() => setFormOpen(true)}>
+                <Plus className="h-4 w-4" /> {t("cases.newCase")}
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
-        <Card className="border-stone-200/80">
-          <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">{t("cases.caseFiles")}</CardTitle>
-            <CardDescription>
-              {view === "all" ? t("cases.filterAllDesc") : view === "active" ? t("cases.filterActiveDesc") : t("cases.filterClosedDesc")}
-            </CardDescription>
-            <CardAction>
-              <Badge variant="outline" className="border-stone-200 bg-stone-50 text-stone-600">
-                {t(rows.length === 1 ? "cases.caseCountOne" : "cases.caseCountOther", { count: rows.length })}
-              </Badge>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="px-0 pb-2">
-            {rows.length === 0 ? (
-              <div className="px-6 pb-4">
-                <EmptyState
-                  icon={FolderKanban}
-                  title={t("cases.emptyTitle")}
-                  description={hasFilters ? t("cases.emptyFilters") : t("cases.emptyFirst")}
-                />
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow className="hover:bg-transparent">
-                    <TableHead className="pl-6">{t("cases.colCaseNo")}</TableHead>
-                    <TableHead>{t("cases.colTitle")}</TableHead>
-                    <TableHead>{t("common.type")}</TableHead>
-                    <TableHead>{t("cases.colClient")}</TableHead>
-                    <TableHead>{t("cases.colLawyer")}</TableHead>
-                    <TableHead>{t("cases.court")}</TableHead>
-                    <TableHead>{t("cases.colNextHearing")}</TableHead>
-                    <TableHead>{t("cases.priority")}</TableHead>
-                    <TableHead>{t("common.status")}</TableHead>
-                    <TableHead className="pr-6">{t("cases.colFiled")}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((c) => {
-                    const rel = c.nextHearingDate ? formatRelativeDay(c.nextHearingDate) : null
-                    return (
-                      <TableRow
-                        key={c.id}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={t("cases.openCaseAria", { caseNumber: c.caseNumber })}
-                        className="cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-500"
-                        onClick={() => navigate("case-detail", { id: c.id })}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault()
-                            navigate("case-detail", { id: c.id })
-                          }
-                        }}
-                      >
-                        <TableCell className="pl-6 font-mono font-semibold">{c.caseNumber}</TableCell>
-                        <TableCell>
-                          <div className="max-w-[16rem]">
-                            <p className="truncate font-medium">{c.title}</p>
+        <section className="u-rise overflow-hidden rounded-xl border border-border/80 bg-card shadow-soft">
+          <header className="flex items-start gap-3 px-5 pb-4 pt-5">
+            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/15">
+              <FolderKanban className="h-4 w-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate font-serif text-lg font-semibold leading-tight tracking-tight text-ink">
+                {t("cases.caseFiles")}
+              </h2>
+              <p className="mt-1 truncate text-xs text-muted-foreground">{viewDescription}</p>
+            </div>
+            <span className="mt-1 shrink-0 rounded-md bg-paper-shade px-2 py-1 text-xs font-semibold tabular-nums text-muted-foreground ring-1 ring-border/70">
+              {rows.length}
+            </span>
+          </header>
+
+          <div aria-hidden className="mx-5 h-px bg-border/70" />
+
+          {/* Desktop: the docket table. */}
+          <div className="hidden overflow-x-auto lg:block">
+            <Table>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="pl-5">{t("cases.colCaseNo")}</TableHead>
+                  <TableHead>{t("common.type")}</TableHead>
+                  <TableHead>{t("cases.colParties")}</TableHead>
+                  <TableHead>{t("cases.court")}</TableHead>
+                  <TableHead>{t("cases.colNextHearing")}</TableHead>
+                  <TableHead>{t("common.status")}</TableHead>
+                  <TableHead className="pr-5 text-right">{t("cases.colFiled")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ordered.map((c) => {
+                  const accent = PRIORITY_ACCENT[c.priority] ?? FALLBACK_ACCENT
+                  const days = daysUntil(c.nextHearingDate)
+                  const imminent = days !== null && days >= 0 && days <= 2
+                  const lines = c.nextHearingDate ? hearingLines(c.nextHearingDate, t) : null
+                  return (
+                    <TableRow
+                      key={c.id}
+                      className="group cursor-pointer border-border/60 transition-colors hover:bg-paper-shade/70"
+                      onClick={() => navigate("case-detail", { id: c.id })}
+                    >
+                      <TableCell className="py-3 pl-5 align-top">
+                        <div className="flex items-start gap-3">
+                          <span
+                            aria-hidden
+                            className={cn("mt-1 h-9 w-[3px] shrink-0 rounded-full", accent.bar)}
+                          />
+                          <div className="min-w-0">
+                            <a
+                              {...caseLink(c.id)}
+                              className="rounded font-mono text-[0.8125rem] font-semibold text-ink transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                            >
+                              {c.caseNumber}
+                            </a>
+                            <p className="mt-0.5 max-w-[20rem] truncate text-sm font-medium">{c.title}</p>
                             {c.oppositeParty ? (
-                              <p className="truncate text-xs text-muted-foreground">
+                              <p className="max-w-[20rem] truncate text-xs text-muted-foreground">
                                 {t("ui.vs")} {c.oppositeParty}
                               </p>
                             ) : null}
                           </div>
-                        </TableCell>
-                        <TableCell className="text-sm">{enumLabel("cases.type", c.type, t)}</TableCell>
-                        <TableCell className="text-sm">{c.client?.name ?? "—"}</TableCell>
-                        <TableCell className="text-sm">
-                          {c.lawyer?.name ?? <span className="italic text-muted-foreground">{t("cases.unassigned")}</span>}
-                        </TableCell>
-                        <TableCell>
-                          <p className="max-w-[12rem] truncate text-sm text-muted-foreground">{c.court}</p>
-                        </TableCell>
-                        <TableCell>
-                          {c.nextHearingDate && rel ? (
-                            <div>
-                              <p className={cn("text-sm font-medium", rel === "Today" && "text-emerald-700")}>
-                                {relDay(rel, t)}
+                        </div>
+                      </TableCell>
+
+                      <TableCell className="align-top text-sm">
+                        {enumLabel("cases.type", c.type, t)}
+                      </TableCell>
+
+                      <TableCell className="align-top">
+                        <p className="max-w-[11rem] truncate text-sm">{c.client?.name ?? "—"}</p>
+                        <p className="max-w-[11rem] truncate text-xs text-muted-foreground">
+                          {c.lawyer?.name ?? <span className="italic">{t("cases.unassigned")}</span>}
+                        </p>
+                      </TableCell>
+
+                      <TableCell className="align-top">
+                        <p className="max-w-[11rem] truncate text-sm text-muted-foreground">{c.court}</p>
+                        {c.district ? (
+                          <p className="max-w-[11rem] truncate text-xs text-muted-foreground/80">
+                            {enumLabel("cases.district", c.district, t)}
+                          </p>
+                        ) : null}
+                      </TableCell>
+
+                      <TableCell className="align-top">
+                        {lines ? (
+                          <div className="flex items-start gap-2">
+                            <span
+                              aria-hidden
+                              className={cn(
+                                "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
+                                imminent ? "bg-brass" : "bg-border"
+                              )}
+                            />
+                            <div className="min-w-0">
+                              <p
+                                className={cn(
+                                  "text-sm font-medium tabular-nums",
+                                  imminent && "text-brass-deep"
+                                )}
+                              >
+                                {lines.lead}
                               </p>
-                              <p className="text-xs text-muted-foreground">{formatDate(c.nextHearingDate)}</p>
+                              {lines.sub ? (
+                                <p className="text-xs tabular-nums text-muted-foreground">{lines.sub}</p>
+                              ) : null}
                             </div>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">—</span>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+
+                      <TableCell className="align-top">
+                        <StatusBadge map={translatedStyles(caseStatusStyles, t)} value={c.status} />
+                        <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", accent.dot)} />
+                          {statusLabel(c.priority, t)}
+                        </p>
+                      </TableCell>
+
+                      <TableCell className="pr-5 align-top">
+                        <div className="flex items-center justify-end gap-2">
+                          <span className="text-sm tabular-nums text-muted-foreground">
+                            {formatDate(c.filingDate)}
+                          </span>
+                          <ChevronRight
+                            aria-hidden
+                            className="h-4 w-4 shrink-0 text-muted-foreground/40 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-brass-deep"
+                          />
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          </div>
+
+          {/* Mobile / tablet: one record per case — no horizontal scrolling. */}
+          <ul className="divide-y divide-border/60 lg:hidden">
+            {ordered.map((c) => {
+              const accent = PRIORITY_ACCENT[c.priority] ?? FALLBACK_ACCENT
+              const days = daysUntil(c.nextHearingDate)
+              const imminent = days !== null && days >= 0 && days <= 2
+              const lines = c.nextHearingDate ? hearingLines(c.nextHearingDate, t) : null
+              return (
+                <li key={c.id}>
+                  <a
+                    {...caseLink(c.id)}
+                    aria-label={t("cases.openCaseAria", { caseNumber: c.caseNumber })}
+                    className="group relative flex items-start gap-3 py-3.5 pl-5 pr-4 transition-colors hover:bg-paper-shade/70 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
+                  >
+                    <span
+                      aria-hidden
+                      className={cn("absolute inset-y-3 left-2 w-[3px] rounded-full", accent.bar)}
+                    />
+
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs font-semibold text-ink">{c.caseNumber}</span>
+                        <StatusBadge map={translatedStyles(caseStatusStyles, t)} value={c.status} />
+                        <StatusBadge map={translatedStyles(priorityStyles, t)} value={c.priority} />
+                      </div>
+
+                      <p className="text-sm font-medium leading-snug">{c.title}</p>
+                      {c.oppositeParty ? (
+                        <p className="truncate text-xs text-muted-foreground">
+                          {t("ui.vs")} {c.oppositeParty}
+                        </p>
+                      ) : null}
+
+                      <p className="truncate text-xs text-muted-foreground">
+                        {[
+                          enumLabel("cases.type", c.type, t),
+                          c.client?.name,
+                          c.lawyer?.name ?? t("cases.unassigned"),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                      <p className="truncate text-xs text-muted-foreground/80">{c.court}</p>
+
+                      {lines ? (
+                        <span
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset",
+                            imminent
+                              ? "bg-brass-tint text-brass-deep ring-brass/25"
+                              : "bg-paper-shade text-muted-foreground ring-border/70"
                           )}
-                        </TableCell>
-                        <TableCell>
-                          <StatusBadge map={translatedStyles(priorityStyles, t)} value={c.priority} />
-                        </TableCell>
-                        <TableCell>
-                          <StatusBadge map={translatedStyles(caseStatusStyles, t)} value={c.status} />
-                        </TableCell>
-                        <TableCell className="pr-6 text-sm text-muted-foreground">{formatDate(c.filingDate)}</TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
+                        >
+                          <CalendarDays aria-hidden className="h-3 w-3" />
+                          {t("cases.colNextHearing")}: {lines.lead}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <ChevronRight
+                      aria-hidden
+                      className="mt-1 h-4 w-4 shrink-0 text-muted-foreground/40 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-brass-deep"
+                    />
+                  </a>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
       )}
 
       <CaseFormDialog

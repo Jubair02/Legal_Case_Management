@@ -9,6 +9,14 @@
 import { cp, access } from "node:fs/promises";
 import { join } from "node:path";
 
+// Vercel builds without standalone output (see next.config.ts), so there is
+// nothing to copy there. Skip rather than fail: for every other target a
+// missing standalone directory is still a real error, handled below.
+if (process.env.VERCEL) {
+  console.log('[copy-standalone] skipped - Vercel does not use output: "standalone"');
+  process.exit(0);
+}
+
 const root = process.cwd();
 const standalone = join(root, ".next", "standalone");
 

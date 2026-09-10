@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import type { ComponentType } from "react"
+import { usePathname, useRouter } from "next/navigation"
 import {
   BarChart3,
   Bell,
@@ -40,21 +40,10 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { apiGet, apiSend } from "@/lib/api-client"
 import { statusLabel, useLanguage } from "@/lib/i18n/language"
 import { NOTIFICATIONS_CHANGED_EVENT } from "@/lib/events"
+import { hrefFor, matchRoute } from "@/lib/routes"
 import { cn, formatDateTime, initials } from "@/lib/utils"
-import type { NotificationDTO, SessionUser, ViewKey, ViewParams, ViewProps } from "@/lib/types"
+import type { NotificationDTO, SessionUser, ViewKey, ViewParams } from "@/lib/types"
 
-import AuditView from "@/components/views/audit-view"
-import DashboardView from "@/components/dashboard/dashboard-view"
-import BillingView from "@/components/views/billing-view"
-import CaseDetailView from "@/components/views/case-detail-view"
-import CasesView from "@/components/views/cases-view"
-import ClientsView from "@/components/views/clients-view"
-import DocumentsView from "@/components/views/documents-view"
-import HearingsView from "@/components/views/hearings-view"
-import LawyersView from "@/components/views/lawyers-view"
-import NotificationsView from "@/components/views/notifications-view"
-import ReportsView from "@/components/views/reports-view"
-import SettingsView from "@/components/views/settings-view"
 
 /* --------------------------- Navigation config --------------------------- */
 
@@ -179,35 +168,24 @@ function navGroupsFor(role: string): NavGroup[] {
   return NAV_GROUPS[role] ?? FALLBACK_NAV
 }
 
-function isItemActive(item: NavItem, view: ViewKey, params: ViewParams): boolean {
-  if (item.view !== view) return false
-  return (item.params?.tab ?? "") === (params.tab ?? "")
-}
-
-/* ------------------------------ View registry ------------------------------ */
-
-const VIEW_REGISTRY: Record<ViewKey, ComponentType<ViewProps>> = {
-  dashboard: DashboardView,
-  cases: CasesView,
-  "case-detail": CaseDetailView,
-  clients: ClientsView,
-  lawyers: LawyersView,
-  hearings: HearingsView,
-  documents: DocumentsView,
-  billing: BillingView,
-  notifications: NotificationsView,
-  reports: ReportsView,
-  settings: SettingsView,
-  audit: AuditView,
+/**
+ * Highlight by URL rather than by view+tab. Two nav items can share a view
+ * (Billing/Payments, Settings/Profile/Users) and detail pages should light up
+ * their parent, so comparing the resolved paths is both simpler and correct.
+ */
+function isItemActive(item: NavItem, pathname: string): boolean {
+  const href = hrefFor(item.view, item.params).split("?")[0]
+  if (pathname === href) return true
+  return href !== "/" && pathname.startsWith(href + "/")
 }
 
 /* ---------------------------- Notification bell ---------------------------- */
 
 const NOTIF_TYPE_STYLES: Record<string, { icon: LucideIcon; className: string }> = {
-  HEARING: { icon: CalendarDays, className: "bg-amber-100 text-amber-700" },
-  BILLING: { icon: Receipt, className: "bg-teal-100 text-teal-700" },
-  CASE: { icon: FolderKanban, className: "bg-emerald-100 text-emerald-700" },
-  INFO: { icon: Info, className: "bg-stone-100 text-stone-600" },
+  HEARING: { icon: CalendarDays, className: "bg-amber-50 text-amber-700 ring-amber-600/15" },
+  BILLING: { icon: Receipt, className: "bg-teal-50 text-teal-700 ring-teal-600/15" },
+  CASE: { icon: FolderKanban, className: "bg-emerald-50 text-emerald-700 ring-emerald-600/15" },
+  INFO: { icon: Info, className: "bg-stone-100 text-stone-600 ring-stone-500/15" },
 }
 
 function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: ViewParams) => void }) {
@@ -308,18 +286,25 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
       }}
     >
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative" aria-label={t("nav.notifications")}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative h-10 w-10 cursor-pointer sm:h-9 sm:w-9"
+          aria-label={t("nav.notifications")}
+        >
           <Bell className="h-5 w-5" />
           {count > 0 ? (
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-semibold text-white">
+            <span className="absolute -right-0.5 -top-0.5 flex h-[1.1rem] min-w-[1.1rem] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold text-white ring-2 ring-paper">
               {count > 9 ? "9+" : count}
             </span>
           ) : null}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-80 p-0">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <p className="text-sm font-semibold">{t("notifications.title")}</p>
+      <DropdownMenuContent align="end" className="w-[min(20rem,calc(100vw-1.5rem))] p-0">
+        <div className="flex items-center justify-between gap-2 border-b border-border/70 px-4 py-3">
+          <p className="font-serif text-base font-semibold tracking-tight text-ink">
+            {t("notifications.title")}
+          </p>
           {count > 0 ? (
             <Badge className="bg-rose-600 text-white hover:bg-rose-600">{t("notifications.countNew", { count })}</Badge>
           ) : null}
@@ -349,11 +334,16 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
                   type="button"
                   onClick={() => void handleClick(n)}
                   className={cn(
-                    "flex w-full items-start gap-3 border-b px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-stone-50",
-                    !n.isRead && "bg-emerald-50"
+                    "flex w-full cursor-pointer items-start gap-3 border-b border-border/60 px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-paper-shade/70",
+                    !n.isRead && "bg-emerald-50/50"
                   )}
                 >
-                  <span className={cn("mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md", style.className)}>
+                  <span
+                    className={cn(
+                      "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset",
+                      style.className
+                    )}
+                  >
                     <Icon className="h-4 w-4" />
                   </span>
                   <span className="min-w-0 flex-1">
@@ -367,9 +357,27 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
             })
           )}
         </div>
-        <div className="border-t p-2">
-          <Button variant="ghost" size="sm" className="w-full" onClick={() => void markAllRead()}>
+        <div className="flex items-center gap-1 border-t border-border/70 p-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-1 cursor-pointer text-xs"
+            disabled={count === 0}
+            onClick={() => void markAllRead()}
+          >
             {t("notifications.markAllRead")}
+          </Button>
+          {/* The dropdown only holds the latest 8 — the full feed is a page. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 cursor-pointer text-xs text-brass-deep"
+            onClick={() => {
+              setOpen(false)
+              navigate("notifications")
+            }}
+          >
+            {t("common.viewAll")}
           </Button>
         </div>
       </DropdownMenuContent>
@@ -382,11 +390,14 @@ function NotificationBell({ navigate }: { navigate: (view: ViewKey, params?: Vie
 function SidebarBrand() {
   const { t } = useLanguage()
   return (
-    <div className="flex items-center gap-3 px-5 pb-2 pt-5">
-      <BrandMark className="h-10 w-10 shrink-0 shadow-md shadow-emerald-950/50" />
+    <div className="relative z-10 flex items-center gap-3 px-5 pb-3 pt-5">
+      <BrandMark className="h-10 w-10 shrink-0 shadow-seal" />
       <span className="min-w-0">
-        <span className="block text-base font-semibold leading-tight text-white">{t("common.appName")}</span>
-        <span className="block truncate text-xs text-emerald-200/60">{t("shell.brandSub")}</span>
+        {/* u-wordmark keeps the Latin mark in the serif even under html[lang="bn"]. */}
+        <span className="u-wordmark block text-lg font-semibold leading-none tracking-tight text-white">
+          {t("common.appName")}
+        </span>
+        <span className="mt-1 block truncate text-[11px] text-emerald-200/55">{t("shell.brandSub")}</span>
       </span>
     </div>
   )
@@ -394,42 +405,45 @@ function SidebarBrand() {
 
 function SidebarNav({
   groups,
-  activeView,
-  viewParams,
+  pathname,
   onNavigate,
 }: {
   groups: NavGroup[]
-  activeView: ViewKey
-  viewParams: ViewParams
+  pathname: string
   onNavigate: (view: ViewKey, params?: ViewParams) => void
 }) {
   const { t } = useLanguage()
   return (
-    <nav className="flex-1 overflow-y-auto px-3 pb-4">
+    <nav className="relative z-10 flex-1 overflow-y-auto px-3 pb-4">
       {groups.map((group) => (
         <div key={group.labelKey}>
-          <p className="px-3 pb-1 pt-4 text-[11px] uppercase tracking-wider text-emerald-200/50">{t(group.labelKey)}</p>
+          <p className="u-eyebrow px-3 pb-1.5 pt-4 text-emerald-200/45">{t(group.labelKey)}</p>
           <div className="space-y-0.5">
             {group.items.map((item) => {
-              const active = isItemActive(item, activeView, viewParams)
+              const active = isItemActive(item, pathname)
               const Icon = item.icon
               return (
                 <button
                   key={`${item.view}:${item.labelKey}`}
                   type="button"
                   onClick={() => onNavigate(item.view, item.params)}
+                  aria-current={active ? "page" : undefined}
                   className={cn(
-                    "relative flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
-                    active ? "bg-white/10 text-white" : "text-emerald-50/75 hover:bg-white/5 hover:text-white"
+                    "relative flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors duration-200",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brass/60",
+                    active
+                      ? "bg-white/10 font-medium text-white"
+                      : "text-emerald-50/75 hover:bg-white/5 hover:text-white"
                   )}
                 >
+                  {/* Brass is the accent of the system — the scales' metal. */}
                   {active ? (
                     <span
                       aria-hidden
-                      className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-amber-400"
+                      className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brass shadow-[0_0_10px_0] shadow-brass/50"
                     />
                   ) : null}
-                  <Icon className="h-4 w-4 shrink-0" />
+                  <Icon className={cn("h-4 w-4 shrink-0", active && "text-brass")} />
                   <span className="truncate">{t(item.labelKey)}</span>
                 </button>
               )
@@ -450,23 +464,24 @@ function SidebarUserBlock({
 }) {
   const { t } = useLanguage()
   return (
-    <div className="border-t border-emerald-900/60 p-4">
+    <div className="relative z-10 shrink-0 p-4">
+      <span aria-hidden className="u-rule mb-4 block" />
       <div className="flex items-center gap-3">
-        <Avatar className="h-9 w-9 border border-emerald-800">
-          <AvatarFallback className="bg-emerald-600 text-xs font-semibold text-white">
+        <Avatar className="h-9 w-9 shrink-0 ring-1 ring-inset ring-white/25">
+          <AvatarFallback className="bg-white/10 text-xs font-bold text-emerald-50">
             {initials(user.name)}
           </AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-white">{user.name}</p>
-          <p className="truncate text-xs text-emerald-200/60">{statusLabel(user.role, t)}</p>
+          <p className="truncate text-[11px] text-emerald-200/55">{statusLabel(user.role, t)}</p>
         </div>
         <button
           type="button"
           onClick={() => void onLogout()}
           title={t("common.signOut")}
           aria-label={t("common.signOut")}
-          className="rounded-md p-2 text-emerald-200/70 transition-colors hover:bg-white/10 hover:text-white"
+          className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-emerald-200/70 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brass/60"
         >
           <LogOut className="h-4 w-4" />
         </button>
@@ -483,10 +498,10 @@ function UserMenu({ user, onLogout }: { user: SessionUser; onLogout: () => void 
         <button
           type="button"
           aria-label={t("shell.accountMenu")}
-          className="rounded-full outline-none ring-ring/50 transition focus-visible:ring-[3px]"
+          className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full outline-none ring-ring/50 transition focus-visible:ring-[3px] sm:h-9 sm:w-9"
         >
-          <Avatar className="h-8 w-8">
-            <AvatarFallback className="bg-emerald-600 text-xs font-semibold text-white">
+          <Avatar className="h-8 w-8 ring-1 ring-inset ring-emerald-900/15">
+            <AvatarFallback className="bg-emerald-600 text-xs font-bold text-white">
               {initials(user.name)}
             </AvatarFallback>
           </Avatar>
@@ -494,12 +509,15 @@ function UserMenu({ user, onLogout }: { user: SessionUser; onLogout: () => void 
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel className="font-normal">
-          <p className="text-sm font-medium text-foreground">{user.name}</p>
+          <p className="text-sm font-medium text-ink">{user.name}</p>
           <p className="truncate text-xs text-muted-foreground">{user.email}</p>
-          <p className="mt-1 text-xs font-medium text-emerald-700">{statusLabel(user.role, t)}</p>
+          <p className="u-eyebrow mt-1.5 text-brass-deep">{statusLabel(user.role, t)}</p>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => void onLogout()} className="text-rose-600 focus:text-rose-700">
+        <DropdownMenuItem
+          onClick={() => void onLogout()}
+          className="cursor-pointer text-rose-600 focus:bg-rose-50 focus:text-rose-700"
+        >
           <LogOut className="h-4 w-4" />
           {t("common.signOut")}
         </DropdownMenuItem>
@@ -513,41 +531,59 @@ function UserMenu({ user, onLogout }: { user: SessionUser; onLogout: () => void 
 export interface AppShellProps {
   user: SessionUser
   onLogout: () => void | Promise<void>
+  /** The routed page. The shell is chrome now; the router picks the view. */
+  children: React.ReactNode
 }
 
-export function AppShell({ user, onLogout }: AppShellProps) {
+export function AppShell({ user, onLogout, children }: AppShellProps) {
   const { lang, setLang, t } = useLanguage()
-  const [activeView, setActiveView] = useState<ViewKey>("dashboard")
-  const [viewParams, setViewParams] = useState<ViewParams>({})
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const mainRef = useRef<HTMLElement | null>(null)
+  const router = useRouter()
+  const pathname = usePathname()
+
+  // Which nav item is current comes from the URL, not from state — so a
+  // refresh, a pasted link and Back/Forward all highlight the right item.
+  const matched = useMemo(() => matchRoute(pathname), [pathname])
+  const activeView: ViewKey = matched?.route.view ?? "dashboard"
+  const activeParams: ViewParams = useMemo(() => matched?.params ?? {}, [matched])
 
   const groups = useMemo(() => navGroupsFor(user.role), [user.role])
   const flatItems = useMemo(() => groups.flatMap((g) => g.items), [groups])
 
-  const navigate = useCallback((view: ViewKey, params?: ViewParams) => {
-    setActiveView(view)
-    setViewParams(params ?? {})
-    setMobileNavOpen(false)
-    requestAnimationFrame(() => {
-      mainRef.current?.scrollTo({ top: 0 })
-    })
-  }, [])
+  const navigate = useCallback(
+    (view: ViewKey, params?: ViewParams) => {
+      setMobileNavOpen(false)
+      router.push(hrefFor(view, params))
+    },
+    [router]
+  )
+
+  // Each navigation starts at the top of the page, as a document would.
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 })
+  }, [pathname])
 
   const pageTitle = useMemo(() => {
-    const match = flatItems.find((it) => isItemActive(it, activeView, viewParams))
+    const match = flatItems.find((it) => isItemActive(it, pathname))
     if (match) return t(match.labelKey)
     return t(VIEW_TITLES[activeView] ?? "common.appName")
-  }, [flatItems, activeView, viewParams, t])
-
-  const ActiveView = VIEW_REGISTRY[activeView] ?? DashboardView
+  }, [flatItems, pathname, activeView, t])
 
   return (
-    <div className="min-h-screen bg-stone-50">
-      {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 flex-col bg-emerald-950 text-emerald-50/90 md:flex">
+    <div className="u-paper min-h-screen">
+      {/* Keyboard users should not have to walk the whole sidebar every page. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-primary-foreground focus:shadow-lift"
+      >
+        {t("shell.skipToContent")}
+      </a>
+
+      {/* Desktop sidebar — the forest ground and engraved weave of the system. */}
+      <aside className="u-forest u-engrave fixed inset-y-0 left-0 z-40 bg-forest-deep hidden w-64 flex-col overflow-hidden border-r border-forest-deep/50 text-emerald-50/90 md:flex">
         <SidebarBrand />
-        <SidebarNav groups={groups} activeView={activeView} viewParams={viewParams} onNavigate={navigate} />
+        <SidebarNav groups={groups} pathname={pathname} onNavigate={navigate} />
         <SidebarUserBlock user={user} onLogout={onLogout} />
       </aside>
 
@@ -555,15 +591,20 @@ export function AppShell({ user, onLogout }: AppShellProps) {
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <SheetContent
           side="left"
-          className="w-72 border-emerald-900/60 bg-emerald-950 p-0 text-emerald-50/90 [&>button]:text-emerald-100"
+          className="u-forest u-engrave flex w-[min(18rem,85vw)] bg-forest-deep flex-col overflow-hidden border-forest-deep/50 p-0 text-emerald-50/90 [&>button]:z-10 [&>button]:text-emerald-100"
         >
           <SheetTitle className="sr-only">{t("shell.navigation")}</SheetTitle>
           <SheetDescription className="sr-only">{t("shell.mainNavigation")}</SheetDescription>
-          <div className="px-4 pt-4">
+
+          {/* Brand first, then nav, then account — the language switch belongs
+              with the account controls, not above the masthead. */}
+          <SidebarBrand />
+          <SidebarNav groups={groups} pathname={pathname} onNavigate={navigate} />
+          <div className="relative z-10 shrink-0 px-4">
             <Button
               variant="outline"
               size="sm"
-              className="w-full gap-2 border-emerald-800/80 bg-white/5 text-xs font-medium text-emerald-50 hover:bg-white/10 hover:text-white"
+              className="h-10 w-full cursor-pointer gap-2 border-white/20 bg-white/5 text-xs font-medium text-emerald-50 hover:bg-white/10 hover:text-white"
               aria-label={t("common.language")}
               onClick={() => setLang(lang === "en" ? "bn" : "en")}
             >
@@ -571,40 +612,43 @@ export function AppShell({ user, onLogout }: AppShellProps) {
               {lang === "en" ? "বাংলা" : "English"}
             </Button>
           </div>
-          <SidebarBrand />
-          <SidebarNav groups={groups} activeView={activeView} viewParams={viewParams} onNavigate={navigate} />
           <SidebarUserBlock user={user} onLogout={onLogout} />
         </SheetContent>
       </Sheet>
 
       {/* Content column */}
       <div className="flex h-screen flex-col md:ml-64">
-        <header className="sticky top-0 z-30 shrink-0 border-b border-stone-200/80 bg-white/80 backdrop-blur">
-          <div className="flex h-14 items-center gap-3 px-4 md:px-6">
+        <header className="sticky top-0 z-30 shrink-0 border-b border-border/70 bg-paper/80 backdrop-blur-xl supports-[backdrop-filter]:bg-paper/65">
+          <div className="flex h-14 items-center gap-2 px-3 md:px-6">
             <Button
               variant="ghost"
               size="icon"
-              className="md:hidden"
+              className="h-10 w-10 cursor-pointer md:hidden"
               onClick={() => setMobileNavOpen(true)}
               aria-label={t("shell.openMenu")}
             >
               <Menu className="h-5 w-5" />
             </Button>
-            <div className="flex items-center gap-2 md:hidden">
-              <BrandMark className="h-7 w-7" />
-              <span className="text-sm font-semibold">{t("common.appName")}</span>
+            <div className="flex min-w-0 items-center gap-2 md:hidden">
+              <BrandMark className="h-7 w-7 shrink-0" />
+              <span className="u-wordmark truncate text-base font-semibold tracking-tight text-ink">
+                {t("common.appName")}
+              </span>
             </div>
-            <h2 className="hidden truncate text-sm font-semibold tracking-tight md:block md:text-base">{pageTitle}</h2>
-            <div className="ml-auto flex items-center gap-1.5">
+            {/* A location label, not a heading — every page renders its own h1
+                just below, so this must not compete in the outline. */}
+            <p className="u-eyebrow hidden truncate text-muted-foreground md:block">{pageTitle}</p>
+
+            <div className="ml-auto flex shrink-0 items-center gap-1">
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 gap-1.5 px-2.5 text-xs font-medium"
+                className="h-10 w-10 cursor-pointer px-0 text-xs font-medium sm:h-9 sm:w-auto sm:gap-1.5 sm:px-2.5"
                 aria-label={t("common.language")}
                 onClick={() => setLang(lang === "en" ? "bn" : "en")}
               >
                 <Languages className="h-4 w-4" />
-                {lang === "en" ? "বাংলা" : "English"}
+                <span className="hidden sm:inline">{lang === "en" ? "বাংলা" : "English"}</span>
               </Button>
               <NotificationBell navigate={navigate} />
               <UserMenu user={user} onLogout={onLogout} />
@@ -612,14 +656,18 @@ export function AppShell({ user, onLogout }: AppShellProps) {
           </div>
         </header>
 
-        <main ref={mainRef} className="flex-1 overflow-y-auto">
+        <main id="main-content" ref={mainRef} className="flex-1 overflow-y-auto">
           <div className="mx-auto flex min-h-full w-full max-w-7xl flex-col p-4 md:p-6">
-            <ActiveView user={user} navigate={navigate} params={viewParams} />
-            <footer className="mt-auto pt-6 text-center">
-              <p className="text-xs text-muted-foreground">
-                © 2026 {t("common.appName")} · আইনসেবা — {t("shell.footerTagline")}
+            {children}
+            <footer className="mt-auto pt-10">
+              <span aria-hidden className="u-rule mx-auto block max-w-xs" />
+              <p className="mt-4 text-center text-xs text-muted-foreground">
+                © 2026 <span className="u-wordmark font-medium">{t("common.appName")}</span> · আইনসেবা —{" "}
+                {t("shell.footerTagline")}
               </p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground/70">{t("shell.footerBuiltFor")}</p>
+              <p className="mt-1 text-center text-[11px] text-muted-foreground/70">
+                {t("shell.footerBuiltFor")}
+              </p>
             </footer>
           </div>
         </main>

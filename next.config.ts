@@ -37,8 +37,17 @@ const securityHeaders = [
     : []),
 ];
 
+/**
+ * Standalone output exists for the self-hosted path only: `npm start` runs
+ * `.next/standalone/server.js`. Vercel traces and bundles the app itself, so
+ * there it is pure cost — it duplicates node_modules (~100 MB, Prisma's query
+ * engine included) inside `.next`, which counts against the serverless
+ * function size limit and buys nothing.
+ */
+const isVercel = Boolean(process.env.VERCEL);
+
 const nextConfig: NextConfig = {
-  output: "standalone",
+  output: isVercel ? undefined : "standalone",
   /* config options here */
   // Type errors fail the build on purpose: two shipped crashes
   // (INVOICE_STATUS_LABELS / HEARING_STATUS_LABELS were undefined) had both
