@@ -3,35 +3,15 @@ import { db } from "@/lib/db"
 import { ApiError } from "@/lib/api-helpers"
 
 /**
- * Role capability map (informational; routes enforce specific checks).
- * ADMIN has full access.
+ * Per-record access rules and list scope filters.
+ *
+ * This module is one of the three enforcement layers — the others are the
+ * middleware route gate (UX only) and `requireAuth([roles])` in each handler.
+ * Nothing here describes the policy in the abstract: the authoritative,
+ * human-readable capability matrix lives in ROLES-AND-PERMISSIONS.md at the
+ * repo root. A duplicate map in code drifts from the routes that actually
+ * enforce it, so there deliberately isn't one.
  */
-export const PERMISSIONS: Record<string, string[]> = {
-  ADMIN: ["*"],
-  LAWYER: [
-    "cases.read.assigned",
-    "cases.update.assigned",
-    "hearings.manage.assigned",
-    "documents.manage.assigned",
-    "clients.read.assigned",
-    "invoices.read.assigned",
-  ],
-  STAFF: [
-    "cases.create",
-    "cases.read.all",
-    "cases.update",
-    "clients.manage",
-    "hearings.manage",
-    "documents.manage",
-  ],
-  CLIENT: [
-    "cases.read.own",
-    "hearings.read.own",
-    "documents.read.shared",
-    "invoices.read.own",
-    "payments.read.own",
-  ],
-}
 
 export function isAdmin(user: SessionUser): boolean {
   return user.role === "ADMIN"
@@ -39,10 +19,6 @@ export function isAdmin(user: SessionUser): boolean {
 
 export function isStaffOrAdmin(user: SessionUser): boolean {
   return user.role === "ADMIN" || user.role === "STAFF"
-}
-
-export function isFinancialRole(user: SessionUser): boolean {
-  return user.role === "ADMIN" // only admin manages money in MVP
 }
 
 /** Can this user read the given case? Throws 404/403 otherwise. */
