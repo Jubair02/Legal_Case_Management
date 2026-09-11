@@ -87,7 +87,6 @@ const NAV_GROUPS: Record<string, NavGroup[]> = {
       items: [
         { labelKey: "nav.reports", icon: BarChart3, view: "reports" },
         { labelKey: "nav.auditLog", icon: ScrollText, view: "audit" },
-        { labelKey: "nav.settings", icon: Settings, view: "settings" },
       ],
     },
   ],
@@ -103,7 +102,6 @@ const NAV_GROUPS: Record<string, NavGroup[]> = {
       ],
     },
     { labelKey: "nav.office", items: [{ labelKey: "nav.notifications", icon: Bell, view: "notifications" }] },
-    { labelKey: "nav.system", items: [{ labelKey: "nav.settings", icon: Settings, view: "settings" }] },
   ],
   LAWYER: [
     { labelKey: "nav.overview", items: [DASHBOARD_ITEM] },
@@ -123,7 +121,6 @@ const NAV_GROUPS: Record<string, NavGroup[]> = {
         { labelKey: "nav.notifications", icon: Bell, view: "notifications" },
       ],
     },
-    { labelKey: "nav.system", items: [{ labelKey: "nav.settings", icon: Settings, view: "settings" }] },
   ],
   CLIENT: [
     { labelKey: "nav.overview", items: [DASHBOARD_ITEM] },
@@ -142,7 +139,6 @@ const NAV_GROUPS: Record<string, NavGroup[]> = {
         { labelKey: "nav.notifications", icon: Bell, view: "notifications" },
       ],
     },
-    { labelKey: "nav.system", items: [{ labelKey: "nav.settings", icon: Settings, view: "settings" }] },
   ],
 }
 
@@ -455,42 +451,20 @@ function SidebarNav({
   )
 }
 
-function SidebarUserBlock({
+/**
+ * Identity, settings and sign-out live here at every breakpoint, so the
+ * sidebar carries navigation only — it ends with the last nav group, and
+ * Settings is no longer a nav item competing with the day's work.
+ */
+function UserMenu({
   user,
   onLogout,
+  navigate,
 }: {
   user: SessionUser
   onLogout: () => void | Promise<void>
+  navigate: (view: ViewKey, params?: ViewParams) => void
 }) {
-  const { t } = useLanguage()
-  return (
-    <div className="relative z-10 shrink-0 p-4">
-      <span aria-hidden className="u-rule mb-4 block" />
-      <div className="flex items-center gap-3">
-        <Avatar className="h-9 w-9 shrink-0 ring-1 ring-inset ring-white/25">
-          <AvatarFallback className="bg-white/10 text-xs font-bold text-emerald-50">
-            {initials(user.name)}
-          </AvatarFallback>
-        </Avatar>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-white">{user.name}</p>
-          <p className="truncate text-[11px] text-emerald-200/55">{statusLabel(user.role, t)}</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void onLogout()}
-          title={t("common.signOut")}
-          aria-label={t("common.signOut")}
-          className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-md text-emerald-200/70 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brass/60"
-        >
-          <LogOut className="h-4 w-4" />
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function UserMenu({ user, onLogout }: { user: SessionUser; onLogout: () => void | Promise<void> }) {
   const { t } = useLanguage()
   return (
     <DropdownMenu>
@@ -513,6 +487,11 @@ function UserMenu({ user, onLogout }: { user: SessionUser; onLogout: () => void 
           <p className="truncate text-xs text-muted-foreground">{user.email}</p>
           <p className="u-eyebrow mt-1.5 text-brass-deep">{statusLabel(user.role, t)}</p>
         </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem className="cursor-pointer" onClick={() => navigate("settings")}>
+          <Settings className="h-4 w-4" />
+          {t("nav.settings")}
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => void onLogout()}
@@ -584,7 +563,6 @@ export function AppShell({ user, onLogout, children }: AppShellProps) {
       <aside className="u-forest u-engrave fixed inset-y-0 left-0 z-40 bg-forest-deep hidden w-64 flex-col overflow-hidden border-r border-forest-deep/50 text-emerald-50/90 md:flex">
         <SidebarBrand />
         <SidebarNav groups={groups} pathname={pathname} onNavigate={navigate} />
-        <SidebarUserBlock user={user} onLogout={onLogout} />
       </aside>
 
       {/* Mobile navigation sheet */}
@@ -596,11 +574,12 @@ export function AppShell({ user, onLogout, children }: AppShellProps) {
           <SheetTitle className="sr-only">{t("shell.navigation")}</SheetTitle>
           <SheetDescription className="sr-only">{t("shell.mainNavigation")}</SheetDescription>
 
-          {/* Brand first, then nav, then account — the language switch belongs
-              with the account controls, not above the masthead. */}
+          {/* Brand first, then nav, then the language switch — it belongs with
+              the controls at the foot of the drawer, not above the masthead.
+              Identity and sign-out are in the header's account menu. */}
           <SidebarBrand />
           <SidebarNav groups={groups} pathname={pathname} onNavigate={navigate} />
-          <div className="relative z-10 shrink-0 px-4">
+          <div className="relative z-10 shrink-0 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
             <Button
               variant="outline"
               size="sm"
@@ -612,7 +591,6 @@ export function AppShell({ user, onLogout, children }: AppShellProps) {
               {lang === "en" ? "বাংলা" : "English"}
             </Button>
           </div>
-          <SidebarUserBlock user={user} onLogout={onLogout} />
         </SheetContent>
       </Sheet>
 
@@ -651,7 +629,7 @@ export function AppShell({ user, onLogout, children }: AppShellProps) {
                 <span className="hidden sm:inline">{lang === "en" ? "বাংলা" : "English"}</span>
               </Button>
               <NotificationBell navigate={navigate} />
-              <UserMenu user={user} onLogout={onLogout} />
+              <UserMenu user={user} onLogout={onLogout} navigate={navigate} />
             </div>
           </div>
         </header>
