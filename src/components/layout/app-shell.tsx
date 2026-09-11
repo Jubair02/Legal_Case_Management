@@ -75,13 +75,7 @@ const NAV_GROUPS: Record<string, NavGroup[]> = {
         { labelKey: "nav.documents", icon: FileText, view: "documents" },
       ],
     },
-    {
-      labelKey: "nav.office",
-      items: [
-        { labelKey: "nav.billing", icon: Receipt, view: "billing" },
-        { labelKey: "nav.notifications", icon: Bell, view: "notifications" },
-      ],
-    },
+    { labelKey: "nav.office", items: [{ labelKey: "nav.billing", icon: Receipt, view: "billing" }] },
     {
       labelKey: "nav.system",
       items: [
@@ -101,7 +95,6 @@ const NAV_GROUPS: Record<string, NavGroup[]> = {
         { labelKey: "nav.documents", icon: FileText, view: "documents" },
       ],
     },
-    { labelKey: "nav.office", items: [{ labelKey: "nav.notifications", icon: Bell, view: "notifications" }] },
   ],
   LAWYER: [
     { labelKey: "nav.overview", items: [DASHBOARD_ITEM] },
@@ -118,7 +111,6 @@ const NAV_GROUPS: Record<string, NavGroup[]> = {
       items: [
         { labelKey: "nav.myClients", icon: Users, view: "clients" },
         { labelKey: "nav.billing", icon: Receipt, view: "billing", params: { tab: "invoices" } },
-        { labelKey: "nav.notifications", icon: Bell, view: "notifications" },
       ],
     },
   ],
@@ -136,7 +128,6 @@ const NAV_GROUPS: Record<string, NavGroup[]> = {
       items: [
         { labelKey: "nav.invoices", icon: Receipt, view: "billing", params: { tab: "invoices" } },
         { labelKey: "nav.payments", icon: Wallet, view: "billing", params: { tab: "payments" } },
-        { labelKey: "nav.notifications", icon: Bell, view: "notifications" },
       ],
     },
   ],
