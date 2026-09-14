@@ -637,6 +637,17 @@ export function AppShell({ user, onLogout, children }: AppShellProps) {
               <p className="mt-1 text-center text-[11px] text-muted-foreground/70">
                 {t("shell.footerBuiltFor")}
               </p>
+              <p className="mt-1 text-center text-[11px] text-muted-foreground/70">
+                {t("shell.footerCreditBy")}{" "}
+                <a
+                  href="https://jhossain.vercel.app"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-foreground/80 underline-offset-4 transition-colors hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                >
+                  Jubair Hossain
+                </a>
+              </p>
             </footer>
           </div>
         </main>

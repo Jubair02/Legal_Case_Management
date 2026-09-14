@@ -1,8 +1,9 @@
 import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
-import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireEnum, requireString } from "@/lib/api-helpers"
+import { ApiError, handle, ok, optionalString, readJson, requireAuth, requireEnum, requireString, throwConflictIfUniqueViolation } from "@/lib/api-helpers"
 import { ROLES } from "@/lib/constants"
 import { hashPassword, MAX_PASSWORD_LENGTH } from "@/lib/password"
+import { EMAIL_RE } from "@/lib/validation"
 import { audit, diffFields } from "@/lib/audit"
 
 const userInclude = {
@@ -46,6 +47,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (body.name !== undefined) data.name = requireString(body.name, "name")
     if (body.phone !== undefined) data.phone = optionalString(body.phone)
 
+    if (body.email !== undefined) {
+      const email = requireString(body.email, "email").toLowerCase()
+      if (!EMAIL_RE.test(email)) throw new ApiError("Please enter a valid email address.", 422)
+      // The email IS the login identity, so the uniqueness check matters as
+      // much here as at creation. The race between this read and the update is
+      // closed by the unique index — see the catch below.
+      if (email !== target.email) {
+        const existing = await db.user.findUnique({ where: { email }, select: { id: true } })
+        if (existing) throw new ApiError("A user with this email already exists.", 409)
+      }
+      data.email = email
+    }
+
     if (body.role !== undefined) {
       data.role = requireEnum(body.role, ROLES, "role")
     }
@@ -69,7 +83,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       data.sessionVersion = { increment: 1 }
     }
 
-    const updated = await db.user.update({ where: { id }, data, include: userInclude })
+    const updated = await db.user
+      .update({ where: { id }, data, include: userInclude })
+      .catch((e: unknown) => {
+        throwConflictIfUniqueViolation(e, "A user with this email already exists.")
+        throw e
+      })
 
     // Password material is never audited — only whitelisted profile fields diff.
     const userDiff = diffFields(

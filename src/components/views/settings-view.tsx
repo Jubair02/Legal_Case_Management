@@ -176,11 +176,12 @@ function UserFormDialog({
       toast.error(t("settings.nameRequired"))
       return
     }
+    // The email is the login identity in both modes, so it is validated in both.
+    if (!isValidEmail(email)) {
+      toast.error(t("settings.emailInvalid"))
+      return
+    }
     if (!isEdit) {
-      if (!isValidEmail(email)) {
-        toast.error(t("settings.emailInvalid"))
-        return
-      }
       if (password.length < PASSWORD_MIN) {
         toast.error(t("settings.passwordMinToast"))
         return
@@ -195,6 +196,7 @@ function UserFormDialog({
       if (isEdit && editing) {
         await apiSend("PATCH", `/api/users/${editing.id}`, {
           name: name.trim(),
+          email: email.trim().toLowerCase(),
           phone: phone.trim() || undefined,
           role,
           status,
@@ -253,9 +255,10 @@ function UserFormDialog({
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="user@example.com"
-                  disabled={isEdit}
                 />
-                {isEdit ? <p className="text-xs text-muted-foreground">{t("settings.emailFixed")}</p> : null}
+                {isEdit ? (
+                  <p className="text-xs text-muted-foreground">{t("settings.emailSignInHint")}</p>
+                ) : null}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="user-password">

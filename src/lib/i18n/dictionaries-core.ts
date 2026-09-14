@@ -139,6 +139,7 @@ export const enCore: Record<string, string> = {
   "shell.accountMenu": "Account menu",
   "shell.footerTagline": "Legal Case Management for Bangladesh",
   "shell.footerBuiltFor": "Built for chambers, advocates & clients",
+  "shell.footerCreditBy": "Built by",
   "shell.skipToContent": "Skip to content",
 
   /* ------------------------------- errors.* -------------------------------
@@ -279,7 +280,7 @@ export const enCore: Record<string, string> = {
   "settings.role": "Role",
   "settings.linkedProfile": "Linked Profile",
   "settings.created": "Created",
-  "settings.emailFixed": "Email cannot be changed.",
+  "settings.emailSignInHint": "This is the address they sign in with.",
   "settings.password": "Password",
   "settings.newPassword": "New Password",
   "settings.passwordKeepHint": "Leave blank to keep the current password.",
@@ -488,6 +489,7 @@ export const bnCore: Record<string, string> = {
   "shell.accountMenu": "অ্যাকাউন্ট মেনু",
   "shell.footerTagline": "বাংলাদেশের জন্য আইন সেবা ব্যবস্থাপনা",
   "shell.footerBuiltFor": "চেম্বার, আইনজীবী ও মক্কেলদের জন্য নির্মিত",
+  "shell.footerCreditBy": "নির্মাণ করেছেন",
   "shell.skipToContent": "মূল কন্টেন্টে যান",
 
   /* ------------------------------- errors.* ------------------------------- */
@@ -626,7 +628,7 @@ export const bnCore: Record<string, string> = {
   "settings.role": "ভূমিকা",
   "settings.linkedProfile": "সংযুক্ত প্রোফাইল",
   "settings.created": "তৈরি",
-  "settings.emailFixed": "ইমেইল পরিবর্তন করা যায় না।",
+  "settings.emailSignInHint": "এই ঠিকানা দিয়েই তিনি লগইন করেন।",
   "settings.password": "পাসওয়ার্ড",
   "settings.newPassword": "নতুন পাসওয়ার্ড",
   "settings.passwordKeepHint": "বর্তমান পাসওয়ার্ড রাখতে খালি রাখুন।",
